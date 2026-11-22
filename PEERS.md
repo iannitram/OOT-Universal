@@ -11,7 +11,7 @@ The projects doing the same work as this repo: the static recompilations of *The
 
 Neither peer's README names a Mac, iPhone/iPad or Android build. Those routes are still to find; the weekly peer review will look for them.
 
-**Licences.** Both peers are GPL-3.0. This repo has no LICENSE yet, which is a Spec decision for me. Their code reaches `main` only if this repo is GPL-3.0 too. Until then the import branches hold their code unchanged, and nothing from them goes into `main`.
+**Licences.** Both peers are GPL-3.0. This repo is GPL-3.0 too (my answer, 2026-11-21; LICENSE file added), so their code may reach `main`, with credit. Until a base is approved, the import branches hold their code unchanged, and nothing from them goes into `main`.
 
 ## Import branches
 
