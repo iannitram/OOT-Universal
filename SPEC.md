@@ -86,14 +86,7 @@ Touch controls are not a Must in 1.0: phones and tablets play with a paired cont
 
 ## Prior art
 
-Projects doing the same thing, approved by me at Spec and reviewed weekly. Their code comes in only when their license allows it, with credit; otherwise only their ideas.
-
-Found 2026-11-21. Approved by me at Spec: not yet.
-
-peer: pixl27/ProjectReLink | GPL-3.0 | Relink, best performance for me: a native Windows build from the Switch 2 remake, with a launcher and shader and pipeline-cache work; a base candidate
-peer: Recomper/Longshot | GPL-3.0 | Longshot, most contributors: Windows and Linux builds, an in-game menu, frame generation and upscaling; a base candidate
-
-No peer yet has a Mac, iPhone/iPad or Android build (PEERS.md). The weekly peer review looks for them.
+The upstream and the peer list are in [`PEERS.md`](PEERS.md) at the repo root.
 
 ## Problem
 
