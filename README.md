@@ -15,4 +15,6 @@ The Legend of Zelda: Ocarina of Time (Switch 2 remake) from my own copy, nativel
 
 ## Frame preflight
 
-With Rust installed, run `cargo run -- path/to/file.zs` (multiple explicit file paths are accepted). The command exits 0 when each file has the expected frame structure, 1 on a file or framing error, and 2 when no paths are given. It examines one standard frame per file, without decompressing or checking the checksum, game version, or payload correctness; it is not a complete integrity check. It is standalone and not yet integrated into setup. Tests: `cargo test`; lint: `cargo clippy --all-targets -- -D warnings`.
+With Rust installed, run `cargo run --locked -- path/to/file.zs`. You can pass multiple regular files. The command exits 0 when each file passes the framing checks, 1 on a file or framing error, and 2 when no paths are given. The preflight examines one standard frame per file and skips the payload. Decompression, checksum verification, game version checks, and integration with setup are separate work.
+
+Run `cargo test --locked` for tests and `cargo clippy --locked --all-targets -- -D warnings` for lint.

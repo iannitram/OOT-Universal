@@ -20,15 +20,18 @@ fn checks_local_files_and_returns_failure_for_bad_input() {
     fs::write(&good, [0x28, 0xb5, 0x2f, 0xfd, 0x20, 0, 1, 0, 0]).unwrap();
     fs::write(&bad, [0x28, 0xb5]).unwrap();
     let exe = env!("CARGO_BIN_EXE_oot-frame-check");
-    assert!(Command::new(exe).arg(&good).status().unwrap().success());
-    assert_eq!(
-        Command::new(exe)
-            .args([&good, &bad])
-            .status()
-            .unwrap()
-            .code(),
-        Some(1)
-    );
-    assert_eq!(Command::new(exe).status().unwrap().code(), Some(2));
+    assert!(Command::new(exe)
+        .arg(&good)
+        .output()
+        .unwrap()
+        .status
+        .success());
+    let mixed = Command::new(exe).args([&good, &bad]).output().unwrap();
+    assert_eq!(mixed.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&mixed.stderr).contains("frame is truncated"));
+    let folder = Command::new(exe).arg(&dir).output().unwrap();
+    assert_eq!(folder.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&folder.stderr).contains("expected a regular file"));
+    assert_eq!(Command::new(exe).output().unwrap().status.code(), Some(2));
     fs::remove_dir_all(dir).unwrap();
 }

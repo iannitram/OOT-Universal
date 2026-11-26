@@ -2,9 +2,9 @@
 
 | Location | Status | Purpose |
 |---|---|---|
-| `src/lib.rs` | Present | Checks a single standard Zstandard frame's header, block boundaries and optional checksum presence; does not decompress or verify content or checksum. |
-| `.github/workflows/rust.yml` | Present | Linux, Windows and macOS tests and Apple/Android target checks for this crate; not device builds. |
-| `src/main.rs` | Present | Runs the preflight on explicit local file paths and returns failure if any cannot be checked. |
-| Launcher, setup orchestration, version gate, recompiler integration, runtime and renderers | Planned | See SPEC.md and ROADMAP.md; no implementation or game build exists here yet. |
-
-The checker is a standalone step available to future M6 setup. It is not wired to a launcher or M7 supported-version gate.
+| [`src/lib.rs`](../src/lib.rs), `check_frame<R: Read + Seek>()` and `FrameInfo` | Present | Reads a single frame from the start of seekable input. Checks the header, block sizes and boundaries, and space for an optional checksum. Returns declared content size, dictionary ID, checksum presence, and block count. It skips the compressed payload. |
+| [`src/main.rs`](../src/main.rs), `oot-frame-check` | Present | Runs `check_frame` for explicit local regular files. Exits 0 on success, 1 on any file or framing error, and 2 when no inputs are supplied. |
+| [`src/lib.rs`](../src/lib.rs), unit tests | Present | Synthetic frames exercise metadata, valid block layout, truncation, reserved fields, trailing data, and the block-size limit. |
+| [`tests/cli.rs`](../tests/cli.rs), integration test | Present | Runs the compiled command with synthetic local files and checks its exit status and errors. |
+| [`.github/workflows/rust.yml`](../.github/workflows/rust.yml) | Present | Desktop Rust checks and Android and iOS target checks are configured. GitHub blocked hosted execution at billing. |
+| Launcher, M6 setup orchestration, M7 version gate, recompiler integration, runtime and renderers | Planned | See the draft [roadmap](../ROADMAP.md). The preflight stands alone. |

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Adapted from pixl27/ProjectReLink, tools/dump_check.py, check(),
-// commit 54af18cda249233a9a9aafcddf5dc317cb3fad42 (GPL-3.0).
-// This checks framing only; it does not decompress or verify the checksum.
+// Adapted to Rust on 2026-11-26 from ProjectReLink contributors' check()
+// in pixl27/ProjectReLink, tools/dump_check.py, at commit
+// 54af18cda249233a9a9aafcddf5dc317cb3fad42 (GPL-3.0).
 use std::io::{self, Read, Seek, SeekFrom};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -14,7 +14,13 @@ pub struct FrameInfo {
 
 fn bytes<R: Read>(reader: &mut R, n: usize) -> io::Result<u64> {
     let mut buf = [0u8; 8];
-    reader.read_exact(&mut buf[..n])?;
+    reader.read_exact(&mut buf[..n]).map_err(|error| {
+        if error.kind() == io::ErrorKind::UnexpectedEof {
+            io::Error::new(io::ErrorKind::UnexpectedEof, "frame is truncated")
+        } else {
+            error
+        }
+    })?;
     Ok(u64::from_le_bytes(buf))
 }
 
@@ -22,7 +28,9 @@ fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
 
-/// Check exactly one standard Zstandard frame, without decoding its payload.
+/// Check framing from the start of a seekable input containing one standard frame.
+/// The content size and dictionary ID are declared values, and the checksum flag
+/// records presence only. The payload is skipped.
 pub fn check_frame<R: Read + Seek>(reader: &mut R) -> io::Result<FrameInfo> {
     let len = reader.seek(SeekFrom::End(0))?;
     reader.seek(SeekFrom::Start(0))?;
@@ -34,9 +42,13 @@ pub fn check_frame<R: Read + Seek>(reader: &mut R) -> io::Result<FrameInfo> {
         return Err(invalid("reserved frame header bit is set"));
     }
     let single = descriptor & 0x20 != 0;
-    if !single {
-        bytes(reader, 1)?; // window descriptor
-    }
+    let window_size = if single {
+        None
+    } else {
+        let descriptor = bytes(reader, 1)?;
+        let base = 1_u64 << (10 + (descriptor >> 3));
+        Some(base + (base / 8) * (descriptor & 7))
+    };
     let dict_len = [0, 1, 2, 4][(descriptor & 3) as usize];
     let dictionary_id = if dict_len == 0 {
         None
@@ -55,6 +67,11 @@ pub fn check_frame<R: Read + Seek>(reader: &mut R) -> io::Result<FrameInfo> {
     } else {
         Some(bytes(reader, size_len)? + if size_len == 2 { 256 } else { 0 })
     };
+    // RFC 8878 defines a single-segment frame's window as its content size.
+    let block_limit = window_size
+        .or(content_size)
+        .unwrap_or_default()
+        .min(128 * 1024);
     let mut info = FrameInfo {
         content_size,
         dictionary_id,
@@ -68,6 +85,9 @@ pub fn check_frame<R: Read + Seek>(reader: &mut R) -> io::Result<FrameInfo> {
         let size = header >> 3;
         if kind == 3 {
             return Err(invalid("reserved block type"));
+        }
+        if size > block_limit {
+            return Err(invalid("block size exceeds the frame limit"));
         }
         let payload = if kind == 1 { 1 } else { size };
         let pos = reader.stream_position()?;
@@ -123,10 +143,31 @@ mod tests {
     }
     #[test]
     fn dictionary_and_extended_size() {
-        let data = [0x28, 0xb5, 0x2f, 0xfd, 0x43, 0, 1, 2, 3, 4, 2, 0, 1, 0, 0];
+        // The unused descriptor bit is ignored. A raw last block contains 258 bytes.
+        let mut data = vec![
+            0x28, 0xb5, 0x2f, 0xfd, 0x53, 0, 1, 2, 3, 4, 2, 0, 0x11, 8, 0,
+        ];
+        data.resize(data.len() + 258, b'a');
         let info = check(&data).unwrap();
         assert_eq!(info.dictionary_id, Some(0x04030201));
         assert_eq!(info.content_size, Some(258));
+    }
+    #[test]
+    fn rle_block_size_respects_window_and_format_limit() {
+        for (header, limit) in [([0x20, 3], 3_u32), ([0, 1], 1152), ([0, 255], 131_072)] {
+            for size in [limit, limit + 1] {
+                let block_header = ((size << 3) | 3).to_le_bytes();
+                let mut data = vec![0x28, 0xb5, 0x2f, 0xfd];
+                data.extend_from_slice(&header);
+                data.extend_from_slice(&block_header[..3]);
+                data.push(b'x');
+                assert_eq!(
+                    check(&data).is_ok(),
+                    size == limit,
+                    "size {size}, limit {limit}"
+                );
+            }
+        }
     }
     #[test]
     fn rejects_bad_magic_reserved_fields_and_trailing_bytes() {
