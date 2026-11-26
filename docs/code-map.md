@@ -2,7 +2,7 @@
 
 ## What exists on audited main
 
-Audit date: 2026-11-26. Baseline: `fdd935716260547c91875617ccbb043bd940b959`, merged peer-reuse PR #3. Read [the roadmap](../ROADMAP.md) for U00–U14 dependencies and M1–M19 acceptance criteria. Only the paths in this section are implemented. All paths and interfaces in later sections are **proposals**, not files, dependencies or stable APIs.
+Audit date: 2026-11-26. Baseline: `fdd935716260547c91875617ccbb043bd940b959`, merged peer-reuse PR #3. Read [the roadmap](../ROADMAP.md) for U00–U14 dependencies and M1–M19 acceptance criteria. This section inventories implemented paths at the audited baseline plus committed follow-up changes in this branch. All paths and interfaces in later sections are **proposals**, not files, dependencies or stable APIs.
 
 | Existing location | API/entry point | Behavior and limits |
 |---|---|---|
@@ -41,7 +41,7 @@ Keep the current root package and CLI stable while introducing a Cargo workspace
 | `platform/{linux,windows,macos,ios,android}/` | U10 / U11 / U12 | Native build/package manifests and lifecycle entry points; signing references rather than credentials. Rust remains application logic; any mandatory platform glue needs a recorded M11 boundary decision. | Selected toolchains and playable components |
 | `crates/upscale/src/{fsr,metalfx}.rs` | U13 | Renderer-owned integration hooks and capability/settings validation; actual API boundaries selected with backend owners. FSR source/license pin required before reuse. | native renderers and G6 |
 | `tests/{contracts,copy,build,abi,saves,launcher,render}/` | U02–U14 | Proposed test areas; synthetic C caller/shaders/fake copies/relay and subprocess doubles. Do not store proprietary game fixtures. | Corresponding implementation |
-| `docs/validation/local-checks.md` | U00 | Reproduction commands for pinned Rust checks, target-check limits, synthetic fixture and CI artifact rules, and hosted billing boundary. | release allowlist tooling; hosted execution |
+| `tools/` and `docs/validation/` | U00/U14 | Planned Rust release allowlist checker and owner validation templates. The local-check guide is already listed above. | release tooling and artifact policy |
 
 ## Proposed contracts for implementation briefs
 
