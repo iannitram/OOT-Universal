@@ -17,13 +17,16 @@ peer: Recomper/Longshot | GPL-3.0 | Longshot, most contributors: Windows and Lin
 
 ### Notes moved from SPEC.md `## Prior art`
 
-Found 2026-11-21. Approved by me at Spec: not yet.
+Found 2026-11-21. The base choice remains unapproved. On 2026-11-26 the owner authorized focused reuse of useful peer code before that choice; this does not approve a base or the spec.
 No peer yet has a Mac, iPhone/iPad or Android build (PEERS.md). The weekly peer review looks for them.
 
 ## Imported code
 
 | Here | From (repo and commit) | License | Credit |
 |---|---|---|---|
+| `src/lib.rs` frame walker | pixl27/ProjectReLink `tools/dump_check.py`, `check()` at `54af18cda249233a9a9aafcddf5dc317cb3fad42` | GPL-3.0 | ProjectReLink contributors; adapted to Rust with additional header and error checks |
+
+Reviewed live 2026-11-26: ProjectReLink `main` at `54af18cda249233a9a9aafcddf5dc317cb3fad42`; Longshot `main` at `fa2cc03aa5c2369dea53856d4b11bdb9d0299b3b`. Longshot’s builder and shader-cache validator are coupled to its setup or runtime; none is imported here.
 
 ## Earlier notes (kept as written)
 
@@ -38,7 +41,7 @@ The projects doing the same work as this repo: the static recompilations of *The
 
 Neither peer's README names a Mac, iPhone/iPad or Android build. Those routes are still to find; the weekly peer review will look for them.
 
-**Licences.** Both peers are GPL-3.0. This repo is GPL-3.0 too (my answer, 2026-11-21; LICENSE file added), so their code may reach `main`, with credit. Until a base is approved, the import branches hold their code unchanged, and nothing from them goes into `main`.
+**Licences.** Both peers are GPL-3.0. This repo is GPL-3.0 too (my answer, 2026-11-21; LICENSE file added), so their code may reach `main`, with credit. The full import branches remain unchanged while the base is undecided. The owner authorized focused peer-code reuse on 2026-11-26; see Imported code for the scoped adaptation.
 
 ## Import branches
 
@@ -51,5 +54,5 @@ Each branch carries its peer's full history as fetched from GitHub; nothing is e
 
 ## Best base candidates
 
-1. **pixl27/ProjectReLink** (GPL-3.0): the best performance for me; the base to start from.
+1. **pixl27/ProjectReLink** (GPL-3.0): the best performance for me; a base candidate pending the benchmark.
 2. **Recomper/Longshot** (GPL-3.0): second on performance, the biggest contributor base; the second source to compare against.
