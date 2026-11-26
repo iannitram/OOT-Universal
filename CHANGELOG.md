@@ -2,6 +2,8 @@
 
 Newest first. One line per change of stage, release or decision that the next session needs.
 
+- 2026-11-26 Audited main at fdd93571; expanded the universal roadmap and code map with work packages, proposed modules/contracts, toolchains, tests and early mobile/ABI/graphics feasibility gates. No new runtime code or base decision.
+
 - 2026-11-26 Owner authorized focused peer-code reuse while the base remains undecided; adapted Relink frame preflight to Rust and added draft roadmap and code map.
 
 - 2026-11-21 Stage Spec. Spec drafted from the interview (SPEC.md), not yet approved: the base is open until I benchmark Relink and Longshot on my devices. Licence decided: GPL-3.0 (LICENSE added). Nothing merged into main from the peers.
