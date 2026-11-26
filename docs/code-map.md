@@ -41,6 +41,7 @@ Keep the current root package and CLI stable while introducing a Cargo workspace
 | `platform/{linux,windows,macos,ios,android}/` | U10 / U11 / U12 | Native build/package manifests and lifecycle entry points; signing references rather than credentials. Rust remains application logic; any mandatory platform glue needs a recorded M11 boundary decision. | Selected toolchains and playable components |
 | `crates/upscale/src/{fsr,metalfx}.rs` | U13 | Renderer-owned integration hooks and capability/settings validation; actual API boundaries selected with backend owners. FSR source/license pin required before reuse. | native renderers and G6 |
 | `tests/{contracts,copy,build,abi,saves,launcher,render}/` | U02–U14 | Proposed test areas; synthetic C caller/shaders/fake copies/relay and subprocess doubles. Do not store proprietary game fixtures. | Corresponding implementation |
+| `tools/probes/abi/` | U01/G3 | Base-neutral Rust static library, narrow C header, C caller and freestanding C translation unit; validates fixed-width call, callback and ownership/shutdown behavior only. Commands and evidence limits are in its README. | selected-base ABI extraction and owner/mobile gates remain pending |
 | `tools/` and `docs/validation/` | U00/U14 | Planned Rust release allowlist checker and owner validation templates. The local-check guide is already listed above. | release tooling and artifact policy |
 
 ## Proposed contracts for implementation briefs
