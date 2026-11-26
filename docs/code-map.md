@@ -68,7 +68,7 @@ trait SaveStore {
 fn backup_before_update(saves: &Path) -> Result<BackupReceipt, SaveError>;
 ```
 
-A `SupportedCopy` token must follow successful exact identity and required-asset checks; `FrameInfo` can never construct it alone. `LocalArtifact` must carry target, identity, recompiler/runtime ABI and tool/input stamps, and remain in private storage. Build/cache keys must invalidate when any required source/tool/config input changes.
+A `SupportedCopy` token must follow successful exact identity and required-asset checks and bind the build to those validated inputs. Validate a private snapshot or revalidate the inputs before use so replacing the original files cannot bypass the checks. `FrameInfo` can never construct it alone. `LocalArtifact` must carry target, identity, recompiler/runtime ABI and tool/input stamps, and remain in private storage. Build/cache keys must invalidate when any required source/tool/config input changes.
 
 For the C ABI, use a generated or audited header and synthetic C caller. Specify ABI version negotiation, pointer bounds, alignment, ownership and callback lifetime. Do not pass Rust-owned `String`, `Vec` or unwinding panics across C. Test invalid handles, partial initialization and double shutdown. Do not invent exported symbols until the selected recompiler's calling convention has been examined.
 
@@ -76,8 +76,8 @@ The render interface needs resource creation/destruction, upload, draw/compute, 
 
 ## End-to-end flow and failure ownership
 
-1. **Import and validate (U03):** owner chooses local input → inspect exact supported identity → validate required assets → create a private staging area. Reject before installation on unsupported input. Never mutate the source copy.
-2. **Build (U04):** verify target capabilities/toolchain → recompile locally → compile/link against versioned runtime ABI → smoke-load synthetic artifact in automated tests → promote staged result atomically. On cancel/error preserve last good installation and saves.
+1. **Import and validate (U03):** owner chooses local input → inspect exact supported identity → stage selected inputs privately → validate required assets. Reject before installation on unsupported input. Never mutate the source copy.
+2. **Build (U04):** verify target capabilities/toolchain → recompile locally → compile/link against versioned runtime ABI → verify target and ABI metadata → promote the staged result atomically. In synthetic tests, separately load and call a fixture artifact through the stub ABI. On cancel/error preserve the last good installation and saves.
 3. **Prepare play (U08/U09):** resolve relay state/conflicts/offline behavior → pull saves → apply validated settings/controller mapping → open runtime. Renderer and runtime receive only the handles/paths they need.
 4. **Play (U05–U07/U13):** generated C → Rust ABI/services → native render/audio/input backend. No game code is available in CI; automate against synthetic ABI programs and shaders.
 5. **Exit/update (U08/U10–U12):** flush and snapshot saves → push or record pending sync → dispose resources. On updates, back up saves before replacement, migrate config separately and allow rollback. Mobile suspension is not a clean desktop process exit.
