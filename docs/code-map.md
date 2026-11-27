@@ -24,6 +24,8 @@ Current invocation: `cargo run --locked -- path/to/frame.zs [another.zs]`. Curre
 
 - [`desktop_exec`](../crates/platform-support/src/desktop_exec.rs) generates one XDG Exec value for an absolute executable path. The example emits a synthetic desktop entry for validator checks. Desktop installation and Steam registration are planned.
 
+- [`audit_m1_macros`](../crates/platform-support/src/apple_cpu.rs) evaluates Clang macro output for the donor’s Apple ARM64 M1 floor. Run `clang -target arm64-apple-ios -mcpu=apple-m1 -dM -E -x c - </dev/null | cargo run --locked -p oot-platform-support --example apple_cpu`. Use `arm64-apple-macos` for a macOS preprocessor check. SDK linking, signing and device support have separate gates.
+
 ## Proposed ownership and layout
 
 The workspace keeps the current root package and CLI stable. Add workspace members as their responsibilities become concrete. The `crates/` layout below is a proposed separation of responsibilities; split or combine crates in an ADR when actual coupling is understood. Do not generate empty crates simply to make the map appear implemented. Preserve the current helper API or provide an explicit migration if moved later.
