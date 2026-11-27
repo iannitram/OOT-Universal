@@ -8,16 +8,16 @@ release. From the repository root, reproduce the desktop CI checks with:
 
 ```sh
 rustup show active-toolchain
-cargo fmt --check
-cargo test --locked
-cargo clippy --locked --all-targets -- -D warnings
+cargo fmt --all --check
+cargo test --locked --workspace
+cargo clippy --locked --workspace --all-targets -- -D warnings
 ```
 
-The hosted `cross-check` job also runs `cargo check --locked --target TARGET`
+The hosted `cross-check` job also runs `cargo check --locked --workspace --target TARGET`
 for `aarch64-linux-android`, `aarch64-apple-ios`, and
 `aarch64-apple-ios-sim`. Run a target check locally after installing that Rust
 target with `rustup target add TARGET`. The workflow assigns the iOS jobs to
-macOS. For the current dependency-free crate, a Rust-only target check can
+macOS. For the current dependency-free workspace, a Rust-only target check can
 also run on Linux with the target standard library installed. Linking an
 iOS app requires the Apple SDK and toolchain. These checks establish Rust
 compilation only. Native linking, packaging, signing, installation and

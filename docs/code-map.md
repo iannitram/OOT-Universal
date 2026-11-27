@@ -8,7 +8,7 @@ Audit date: 2026-11-26. Baseline: `fdd935716260547c91875617ccbb043bd940b959`, me
 |---|---|---|
 | [`Cargo.toml`](../Cargo.toml), [`Cargo.lock`](../Cargo.lock) | Workspace with root `oot-frame-check` and `oot-contracts`, edition 2021, GPL-3.0-only | Dependency-free Cargo workspace. The root package and CLI remain intact; this is not an application build. |
 | [`crates/contracts/src/copy.rs`](../crates/contracts/src/copy.rs) | `CopyIdentity::new` and normalized accessors | Validates 16-hex program ID, `v` plus decimal version and 8-hex build ID; normalizes hexadecimal case and decimal leading zeroes. This is syntax validation only, not supported-version policy. |
-| [`crates/contracts/src/target.rs`](../crates/contracts/src/target.rs) | `TargetProfile::new`, architecture/platform accessors, `family` | Keeps architecture distinct from platform and classifies desktop/mobile. Rejects combinations outside the current target matrix. |
+| [`crates/contracts/src/target.rs`](../crates/contracts/src/target.rs) | `TargetProfile::new`, architecture/platform accessors, `family` | Keeps architecture distinct from platform and classifies desktop/mobile. Recognizes planned platform and probe combinations, including Linux ARM64 for portability probes. No ABI, device/simulator distinction or runtime capability guarantee. |
 | [`src/lib.rs`](../src/lib.rs) | `check_frame<R: Read + Seek>(&mut R) -> io::Result<FrameInfo>` | Seeks to start, parses one standard Zstandard frame, checks block limits/bounds, optional checksum bytes and exact end. Skips payload; rejects concatenated/skippable frames. Returns framing results, not proof of decompressibility. |
 | [`src/lib.rs`](../src/lib.rs) | `FrameInfo { content_size: Option<u64>, dictionary_id: Option<u32>, has_checksum: bool, blocks: u64 }` | Size/dictionary are declared metadata; checksum flag is presence only. Callers must not treat any field as authenticated. |
 | [`src/lib.rs`](../src/lib.rs) | Private `bytes`, `invalid`; four unit tests | Little-endian reads and typed IO errors. Tests metadata, valid layout, truncation, reserved fields/trailing data and block/window limits. |
@@ -22,11 +22,11 @@ Current invocation: `cargo run --locked -- path/to/frame.zs [another.zs]`. Curre
 
 ## Proposed ownership and layout
 
-Keep the current root package and CLI stable while introducing a Cargo workspace incrementally in U02. The `crates/` layout below is a proposed separation of responsibilities; split or combine crates in an ADR when actual coupling is understood. Do not generate empty crates simply to make the map appear implemented. Preserve the current helper API or provide an explicit migration if moved later.
+The workspace keeps the current root package and CLI stable. Add workspace members as their responsibilities become concrete. The `crates/` layout below is a proposed separation of responsibilities; split or combine crates in an ADR when actual coupling is understood. Do not generate empty crates simply to make the map appear implemented. Preserve the current helper API or provide an explicit migration if moved later.
 
 | Proposed path | Package | Responsibility / code to add | Depends on |
 |---|---|---|---|
-| `crates/contracts/src/{copy,target}.rs` | U02 | Implemented `CopyIdentity` syntax/normalization and `TargetProfile`; build requests, settings, session state and operational error model remain future work. No toolkit/renderer dependency. | Workspace; G3 decisions for later contracts |
+| `crates/contracts/src/{build,settings,session,error}.rs` | U02 | Add build requests, settings, session state and an operational error model. No toolkit/renderer dependency. | Workspace; G3 decisions for later contracts |
 | `crates/copy/src/{inspect,version,assets,extract}.rs` | U03 | Inspect provided copy, exact identity gate, asset-list validation, bounded decompression/checksum verification, safe extraction to staging. Existing frame helper is one optional early check. | contracts; chosen metadata format |
 | `crates/build/src/{plan,tools,runner,cache,install}.rs` | U04 | Tool discovery/version verification, recompiler/C compilation plan, subprocess execution, cancellation, private cache and atomic promotion. Distinguish host from target toolchain. | contracts, copy, selected recompiler |
 | `third_party/recompiler/` | U01/U04 | Proposed destination for approved, pinned base recompiler and required public support code; preserve license/NOTICE and applicable peer tests. Exact subset chosen after G1. | Base decision and provenance audit |

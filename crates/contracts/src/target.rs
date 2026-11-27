@@ -21,7 +21,11 @@ pub enum TargetFamily {
     Mobile,
 }
 
-/// A supported architecture/platform pair in the project's current target matrix.
+/// An architecture/platform pair accepted by the project for development or probes.
+///
+/// This classification carries no Rust target triple, ABI, simulator/device
+/// distinction, or runtime capability guarantee. Linux ARM64 is a portability
+/// probe target. Choose an explicit compiler target for linking or packaging.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct TargetProfile {
     architecture: Architecture,
