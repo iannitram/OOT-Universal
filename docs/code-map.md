@@ -2,7 +2,7 @@
 
 ## What exists on audited main
 
-Audit date: 2026-11-26. Baseline: `fdd935716260547c91875617ccbb043bd940b959`, merged peer-reuse PR #3. Read [the roadmap](../ROADMAP.md) for U00–U14 dependencies and M1–M19 acceptance criteria. Only the paths in this section are implemented. All paths and interfaces in later sections are **proposals**, not files, dependencies or stable APIs.
+Audit date: 2026-11-26. Baseline: `fdd935716260547c91875617ccbb043bd940b959`, merged peer-reuse PR #3. Read [the roadmap](../ROADMAP.md) for U00–U14 dependencies and M1–M19 acceptance criteria. This section inventories implemented paths at the audited baseline plus committed follow-up changes in this branch. All paths and interfaces in later sections are **proposals**, not files, dependencies or stable APIs.
 
 | Existing location | API/entry point | Behavior and limits |
 |---|---|---|
@@ -12,11 +12,11 @@ Audit date: 2026-11-26. Baseline: `fdd935716260547c91875617ccbb043bd940b959`, me
 | [`src/lib.rs`](../src/lib.rs) | Private `bytes`, `invalid`; four unit tests | Little-endian reads and typed IO errors. Tests metadata, valid layout, truncation, reserved fields/trailing data and block/window limits. |
 | [`src/main.rs`](../src/main.rs) | `main() -> ExitCode`; binary `oot-frame-check` | Accepts OS-string file paths, checks regular-file metadata, opens a buffered reader and checks each file. Exit 0 all pass, 1 any file/framing error, 2 no arguments. Prints local paths: do not automatically upload output as diagnostics. |
 | [`tests/cli.rs`](../tests/cli.rs) | `checks_local_files_and_returns_failure_for_bad_input` | Synthetic local file integration test, not a game-copy test or all review smoke cases. |
-| [`.github/workflows/rust.yml`](../.github/workflows/rust.yml) | `test`, `cross-check` jobs | Desktop fmt/test/Clippy on Linux/Windows/macOS; `cargo check` on Android arm64 and iOS device/simulator arm64. Hosted billing prevented any execution at the audited merge. No mobile linking/package tests. |
+| [`.github/workflows/rust.yml`](../.github/workflows/rust.yml), [`rust-toolchain.toml`](../rust-toolchain.toml) | `test`, `cross-check` jobs; Rustup toolchain selection | Both jobs use Rust 1.100.0. Desktop fmt/test/Clippy runs on Linux/Windows/macOS; `cargo check` runs on Android arm64 and iOS device/simulator arm64. Local reproduction and synthetic-fixture rules: [`docs/validation/local-checks.md`](validation/local-checks.md). Hosted billing is external; no mobile linking/package tests. |
 | [`PEERS.md`](../PEERS.md) | Imported-code ledger | Source commit and GPL credit for Rust frame walker. Full import branches are reference material; they are not source directories on main. |
 | [`docs/adr/README.md`](adr/README.md) | ADR convention | No numbered architecture decision exists yet. Spec/base/UI decisions must not be inferred from proposed names below. |
 
-Current invocation: `cargo run --locked -- path/to/frame.zs [another.zs]`. Current validation: `cargo fmt --check`, `cargo test --locked`, `cargo clippy --locked --all-targets -- -D warnings`. These check the existing package only.
+Current invocation: `cargo run --locked -- path/to/frame.zs [another.zs]`. Current validation: `cargo fmt --check`, `cargo test --locked`, `cargo clippy --locked --all-targets -- -D warnings`. These check the existing package only. Run them with pinned Rust 1.100.0; see [`docs/validation/local-checks.md`](validation/local-checks.md) for target-check and fixture boundaries.
 
 ## Proposed ownership and layout
 
@@ -41,7 +41,7 @@ Keep the current root package and CLI stable while introducing a Cargo workspace
 | `platform/{linux,windows,macos,ios,android}/` | U10 / U11 / U12 | Native build/package manifests and lifecycle entry points; signing references rather than credentials. Rust remains application logic; any mandatory platform glue needs a recorded M11 boundary decision. | Selected toolchains and playable components |
 | `crates/upscale/src/{fsr,metalfx}.rs` | U13 | Renderer-owned integration hooks and capability/settings validation; actual API boundaries selected with backend owners. FSR source/license pin required before reuse. | native renderers and G6 |
 | `tests/{contracts,copy,build,abi,saves,launcher,render}/` | U02–U14 | Proposed test areas; synthetic C caller/shaders/fake copies/relay and subprocess doubles. Do not store proprietary game fixtures. | Corresponding implementation |
-| `tools/` and `docs/validation/` | U00/U14 | Rust release/validation tools and sanitized checklists/templates. Keep owner game libraries, game-binary analysis and raw local playthrough evidence outside tracked files/CI. | artifact policy |
+| `tools/` and `docs/validation/` | U00/U14 | Planned Rust release allowlist checker and owner validation templates. The local-check guide is already listed above. | release tooling and artifact policy |
 
 ## Proposed contracts for implementation briefs
 
