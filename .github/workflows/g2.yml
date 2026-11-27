@@ -33,10 +33,8 @@ jobs:
       - name: Fetch pinned public emitter imports
         run: |
           git fetch --no-tags --depth=1 origin \
-            refs/heads/import/relink:refs/remotes/origin/import/relink \
-            refs/heads/import/longshot:refs/remotes/origin/import/longshot
-          test "$(git rev-parse refs/remotes/origin/import/relink)" = 16cba0845075868d211c63674156fa37401d852e
-          test "$(git rev-parse refs/remotes/origin/import/longshot)" = fa2cc03aa5c2369dea53856d4b11bdb9d0299b3b
+            16cba0845075868d211c63674156fa37401d852e \
+            fa2cc03aa5c2369dea53856d4b11bdb9d0299b3b
 
       - name: Verify Apple Clang and run probe
         run: |
