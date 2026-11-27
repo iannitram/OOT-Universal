@@ -10,6 +10,19 @@ pub enum ExecPathError {
     InvalidCharacter,
 }
 
+impl std::fmt::Display for ExecPathError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotAbsolute => f.write_str("desktop executable path must be absolute"),
+            Self::InvalidCharacter => f.write_str(
+                "desktop executable path must use ASCII without controls or equals signs",
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ExecPathError {}
+
 /// Encodes one absolute executable path as the entire value of an XDG Exec key.
 ///
 /// Desktop Entry value escaping applies before argument unquoting, and a percent
