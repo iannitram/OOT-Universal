@@ -34,9 +34,11 @@ These gates precede a broad runtime or UI rewrite. Record outcomes in numbered A
 
 The iOS path must establish code-signing, application sandbox access, local game-library inclusion, signature-expiry reporting and re-sign workflow on a free Apple ID. Do not assume desktop-style dynamic loading, on-device compilation, JIT entitlements or unattended signing. App Store distribution is not a 1.0 requirement; App Store review rules are not evidence that cable-installed development signing will or will not work.
 
-## Dependency-ordered work packages
+## Base code
 
-`Uxx` identifies a build work package; `Mxx` remains the original Must in SPEC.md. These are planning IDs, not claims that implementation issues already exist. Create focused issues using the repository template as a package is selected, with exact paths, expected results and prerequisite issue links. Each package may need several separately reviewable PRs.
+Choose the base after the owner benchmark. Pin the approved peer revision and inventory its recompiler, host interfaces, applicable tests and dependency licenses. Keep copy identification, asset validation, build orchestration, runtime services, renderer contracts, saves and launcher state reusable across every platform.
+
+The open stack through [PR #15](https://github.com/iannitram/OOT-Universal/pull/15) pins Rust, adds a synthetic C/Rust ABI probe, shared Cargo contracts, a pure copy identity gate and a synthetic staged build. Main remains at the standalone frame checker. The stack demonstrates build foundations with synthetic inputs. Real asset validation, selected-recompiler integration, runtime services and game boot still need implementation.
 
 | Package | Depends on | Code and tools to build | Acceptance gate | Musts |
 |---|---|---|---|---|
@@ -50,26 +52,53 @@ The iOS path must establish code-signing, application sandbox access, local game
 | U07 Metal backend — planned | G4, U05 contracts; can parallel U06 after shared interface | Rust Metal bindings, shader translation to supported Metal input, texture conversions, resource synchronization and presentation. Evaluate bindings and shader tools against the probe, not API names alone. | Synthetic draw/compute/readback on Mac, then signed iOS first frame and lifecycle test; no Vulkan backend masquerading as native Metal. | M12, M16–M17 |
 | U08 Saves and safe session lifecycle — planned | U02, G6; U05 filesystem boundary | Save-relay adapter/manifest, per-platform save roots, atomic snapshots, conflict and offline handling; sync before launch and after clean exit, preserve dirty state after crash. Save progress parser or explicit unavailable state. | Fake relay and filesystem tests; safe offline retry; backup/restore and version migration tests; owner save round trip on all six devices. Never sync caches, keys or game libraries. | M2, M5, M19 |
 | U09 Controller-first launcher and settings — planned | U02, G6; wire U03–U08 as available | Continue, Setup, Settings, Saves, About; testable view models, setup progress/errors, controller navigation, resolution/upscaler/cap and mappings, optional extras off by default. UI framework chosen by ADR. | Synthetic saves and fake build/runner tests cover controller focus and lifecycle; saved settings reach runtime; owner navigation on every platform. | M5, M8 |
-| U10 Desktop packaging and Steam integration — planned | U04–U06, U08–U09 | Linux/SteamOS bundle and Windows package, native paths, updater, controller mapping, Steam shortcut and owner-provided/permitted artwork. Add application release allowlists. | Clean installs/updates with saves intact; Game Mode hour on both handhelds; Windows controller hour; packages contain no game material. | M10, M14–M15, M19 |
-| U11 Apple packaging and lifecycle — blocked by feasibility | G2, G5, U04–U05, U07–U09 | Apple silicon Mac app; target-specific C linking, Xcode SDK/signing, iOS bundle, cable install/re-sign support, sandbox imports, controller APIs and pause/resume. | Native Mac play; iPhone/iPad install, all mapped buttons, resume and re-sign after actual expiry. Mac-generated artifact remains private and per-device; no build hub or redistribution. | M6, M16–M17, M19 |
-| U12 Android packaging and local build — blocked by feasibility | G2, G4–G5, U04–U06, U08–U09 | Android app shell/entry, SDK/NDK linkage, Gradle package, Storage Access Framework import, validated app-local compiler and generated-library loading; controller and surface lifecycle. | Adreno device builds from owner copy and plays; rotation/background/surface loss and storage pressure preserve state. Host NDK compilation alone is not on-device compilation. | M6, M18–M19 |
 | U13 Upscaling, caches and frame pacing — planned | U06–U07; G6 for reused FSR code | FSR Rust-renderer integration on Vulkan, MetalFX on Apple, cache stamps keyed by backend/device/driver/shader/tool version, warm-up and invalidation, 30/60 caps and frame-time capture. | Native-resolution baseline before upscaling; 30-minute handheld soaks at target resolution; device-specific cache invalidation tests. Frame generation is not required for 1.0. | M3, M8, M13 |
 | U14 Compatibility and completion — planned | Relevant playable packages U05–U13 | Chosen-base open-bug inventory at approval, one test/repro per defect, private playthrough journal, completion criteria and release checklist. | All known play-breaking issues fixed or owner-ruled nonreproducible; M1 100% playthrough and all device/save/performance checks complete. | M1–M3, M9–M10 |
 
-Critical path: **U00 policy and U01 feasibility → U02 contracts → U03 validation → U04 linking against the G3 stub → U05 runtime integration → U06/U07 → playable platform packages → U13/U14**. U05 service work can start from the ABI contract while U04 is underway. Saves and launcher work can proceed against fakes after shared contracts exist. Begin mobile feasibility probes during U01, not after desktop completion. No dates are assigned before those probes bound the work.
+Uxx identifies a work package. Mxx refers to a requirement in [SPEC.md](SPEC.md). U10 is the shared desktop packaging package and has separate Windows and SteamOS checks. U11 has separate macOS and iOS checks.
 
-## Toolchains and delivery evidence
+Critical path: establish toolchain and portability evidence (U00–U01), then extend contracts and local setup (U02–U04), reach runtime and renderer milestones (U05–U07), and finish platform packages, performance, and the device acceptance checks. Saves and launcher work can proceed against fakes once shared contracts exist. Start mobile feasibility probes during U01.
 
-| Platform | Proposed development/build tools | Runtime integration still required | Release gate |
-|---|---|---|---|
-| Shared Rust | Rust/Cargo, rustfmt, Clippy; pinned recompiler Python and C++ toolchain after base selection; Clang/CMake/Ninja only where the actual build requires them | Rust crate graph, C ABI and target-neutral contracts | All core tests on Linux, Windows and macOS; no game-dependent CI |
-| SteamOS/Linux x86-64 | Native C compiler/linker; Vulkan SDK/tools and validation layers in development; RenderDoc candidate for synthetic graphics diagnostics | Vulkan surfaces, audio/input, game-library loading and Steam registration | Both handhelds, native screen size, Game Mode controls and soak |
-| Windows x86-64 | Rust MSVC target, Visual Studio Build Tools/Windows SDK or a verified compatible selected-base toolchain; Vulkan development tools | DLL loading, paths, input/audio and packaging | Native Windows build/install and controller hour |
-| macOS ARM64 | Xcode command-line tools/SDK, Clang, Rust Apple silicon target, Metal compiler and Xcode GPU tooling | Native Metal, app paths and bundle lifecycle | Linked app and native owner session; no Rosetta |
-| iOS/iPadOS ARM64 | Mac with Xcode/iOS SDK, Rust iOS target, provisioning and code signing; simulator separate from device | Signed bundle linkage, sandbox access, controller and foreground/background lifecycle | Physical device install, play and seven-day re-sign check |
-| Android ARM64 | Android SDK/NDK, Gradle and `adb` for app development; Rust Android target; separately prove compiler usable on device | App entry/surface lifecycle, Vulkan, file picker, local build and library load | On-device build and Adreno play; APK host cross-build is insufficient |
+## Android
 
-UI/backend/compiler packages must be version-pinned when selected, with licenses and platform versions recorded. Candidate UI: Slint (sibling alignment); candidates for Rust Vulkan/native Metal access require G4/G6 probes. No additional library is currently declared in Cargo.toml.
+| Package | Depends on | Code and tools to build | Acceptance gate | Musts |
+|---|---|---|---|---|
+| U12 Android packaging and local build — blocked by feasibility | G2, G4–G5, U04–U06, U08–U09 | Android app shell/entry, SDK/NDK linkage, Gradle package, Storage Access Framework import, validated app-local compiler and generated-library loading; controller and surface lifecycle. | Adreno device builds from owner copy and plays; rotation/background/surface loss and storage pressure preserve state. Host NDK compilation alone is not on-device compilation. | M6, M18–M19 |
+
+- Prove the Android ARM64 path with a synthetic C/Rust library first. Use the Android SDK, NDK and Gradle for host builds and `adb` for installation and device logs. Separately prove the compiler and loader that can run on the phone under the app's storage and execution rules.
+- Integrate Storage Access Framework input, app-private staging, Adreno Vulkan capability checks, controller mapping, audio, and surface/background recovery. Measure storage, memory and build time on the target device.
+- Gate delivery on an owner-copy build and successful play on Adreno. Confirm save preservation across process death and updates. A host-built APK and a Rust target check cover earlier stages.
+
+## iOS and iPadOS
+
+| Package | Depends on | Code and tools to build | Acceptance gate | Musts |
+|---|---|---|---|---|
+| U11 Apple packaging and lifecycle — blocked by feasibility | G2, G5, U04–U05, U07–U09 | Apple silicon Mac app; target-specific C linking, Xcode SDK/signing, iOS bundle, cable install/re-sign support, sandbox imports, controller APIs and pause/resume. | Native Mac play; iPhone/iPad install, all mapped buttons, resume and re-sign after actual expiry. Mac-generated artifact remains private and per-device; no build hub or redistribution. | M6, M16–M17, M19 |
+
+- Start with a synthetic Rust/C app linked with Xcode and the iOS SDK. Keep simulator and device targets separate. Prove physical-device installation and execution before adopting a game-library packaging approach.
+- Resolve the M6 and iOS platform-row wording with the owner. The current platform row puts the Apple toolchain on the Mac. Prove local build, link, provisioning, cable installation, expiry reporting, and one-step re-signing with the owner's free Apple ID.
+- Implement native Metal and MetalFX where supported, Game Controller input, sandboxed imports, and pause/resume and save recovery. Gate on mapped Xbox, PlayStation or MFi input, play on an iPhone or iPad, and re-signing after expiry.
+
+## macOS
+
+- U11 shares source with iOS and has its own desktop validation. Build and link for Apple silicon with Xcode command-line tools, SDK, Clang, and Rust's `aarch64-apple-darwin` target. Verify selected recompiler output and desktop host ABI without Rosetta.
+- Bring up native Metal presentation and MetalFX after synthetic shader and resource tests. Add bundle paths, controller and audio support, game-library loading, and save-safe updates.
+- Gate on an owner-copy build, installed native app, controller play and save round trip on an Apple silicon Mac.
+
+## Windows
+
+| Package | Depends on | Code and tools to build | Acceptance gate | Musts |
+|---|---|---|---|---|
+| U10 Desktop packaging and Steam integration — planned | U04–U06, U08–U09 | Linux/SteamOS bundle and Windows package, native paths, updater, controller mapping, Steam shortcut and owner-provided/permitted artwork. Add application release allowlists. | Clean installs/updates with saves intact; Game Mode hour on both handhelds; Windows controller hour; packages contain no game material. | M10, M14–M15, M19 |
+
+- Use the pinned Rust MSVC toolchain, Visual Studio Build Tools and Windows SDK, or record a compatible selected-base toolchain. Validate DLL loading, wide paths, runtime redistributables, Vulkan capability errors, and controller/audio selection.
+- Package the launcher and runtime with a clean install and rollback path. Verify accurate errors for missing toolchains or unsupported hardware. Gate on a native owner-copy build, settings reaching the runtime, save-safe update, and a controller play hour on the RTX 3090 Ti.
+
+## Linux (SteamOS)
+
+- U10 shares packaging ownership with Windows. Build with native Rust and the selected C/C++ toolchain, and validate Vulkan loader/driver behavior, paths, controller input and audio on actual SteamOS. Benchmark both peers under comparable settings before choosing the base.
+- Evaluate Longshot's Linux build and AppImage tooling as source references. Check portability, package dependency boundaries and licensing independently of the peer renderer. Validate clean installs in the distribution format chosen for this project.
+- Register the launcher and permitted artwork with Steam, preserve unrelated entries, and test Game Mode launch and built-in controls. Gate on both handhelds, a one-hour play check, 30-minute frame-time soaks at native screen size, and save/update recovery.
 
 ## Requirement coverage and immediate queue
 

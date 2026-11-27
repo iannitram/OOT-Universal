@@ -2,7 +2,7 @@
 
 ## What exists on audited main
 
-Audit date: 2026-11-26. Baseline: `fdd935716260547c91875617ccbb043bd940b959`, merged peer-reuse PR #3. Read [the roadmap](../ROADMAP.md) for U00–U14 dependencies and M1–M19 acceptance criteria. This section inventories implemented paths at the audited baseline plus committed follow-up changes in this branch. All paths and interfaces in later sections are **proposals**, not files, dependencies or stable APIs.
+Audit date: 2026-11-26. Baseline: `fdd935716260547c91875617ccbb043bd940b959`, merged peer-reuse PR #3. Read [the roadmap](../ROADMAP.md) for shared base work, Android, iOS/iPadOS, macOS, Windows and Linux/SteamOS gates. [The peer survey](../PEERS.md#platform-peer-survey--2026-11-26) records external evidence separately from code present here. This section inventories implemented paths at the audited baseline plus committed follow-up changes in this branch. All paths and interfaces in later sections are **proposals**, not files, dependencies or stable APIs.
 
 | Existing location | API/entry point | Behavior and limits |
 |---|---|---|
