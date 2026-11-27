@@ -7,7 +7,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 const FIXTURE: &str = include_str!("../fixtures/synthetic.c");
+#[cfg(not(windows))]
 const EXPECTED_OUTPUT: &str = "synthetic-build-ok\n";
+#[cfg(windows)]
+const EXPECTED_OUTPUT: &str = "synthetic-build-ok\r\n";
 
 #[derive(Debug)]
 pub enum BuildError {
@@ -46,7 +49,9 @@ impl From<io::Error> for BuildError {
 
 /// Configuration for the bundled, synthetic C build probe.
 ///
-/// The compiler is invoked directly with fixed arguments and is never interpreted by a shell.
+/// Use a trusted compiler and a trusted, private output root. The compiler is
+/// invoked directly with fixed arguments in staging. It inherits the caller's
+/// environment and can run other tools.
 #[derive(Debug, Clone)]
 pub struct BuildConfig {
     pub compiler: PathBuf,
@@ -70,30 +75,14 @@ where
         .into());
     }
     fs::create_dir_all(&config.output_root)?;
-    let staging = create_staging_dir(&config.output_root)?;
-    let outcome = build_in_staging(config, &staging, &mut cancelled);
-    match outcome {
-        Ok(()) => {
-            let generation = match new_generation_path(&config.output_root) {
-                Ok(path) => path,
-                Err(error) => {
-                    let _ = fs::remove_dir_all(&staging);
-                    return Err(error);
-                }
-            };
-            match fs::rename(&staging, &generation) {
-                Ok(()) => Ok(generation),
-                Err(error) => {
-                    let _ = fs::remove_dir_all(&staging);
-                    Err(BuildError::Publication(error))
-                }
-            }
-        }
-        Err(error) => {
-            let _ = fs::remove_dir_all(&staging);
-            Err(error)
-        }
+    let root = config.output_root.canonicalize()?;
+    let (staging, generation) = create_staging_dir(&root)?;
+    let outcome = build_in_staging(config, &staging, &mut cancelled)
+        .and_then(|()| fs::rename(&staging, &generation).map_err(BuildError::Publication));
+    if outcome.is_err() {
+        let _ = fs::remove_dir_all(&staging);
     }
+    outcome.map(|()| generation)
 }
 
 fn build_in_staging<F>(
@@ -104,20 +93,21 @@ fn build_in_staging<F>(
 where
     F: FnMut() -> bool,
 {
-    let source = staging.join("fixture.c");
+    let source = "fixture.c";
     let executable = staging.join(binary_name());
-    fs::write(&source, FIXTURE)?;
+    fs::write(staging.join(source), FIXTURE)?;
     check_cancelled(cancelled)?;
 
     let compile = Command::new(&config.compiler)
+        .current_dir(staging)
         .arg("-std=c11")
         .arg("-Wall")
         .arg("-Wextra")
         .arg("-Werror")
         .arg("-O2")
-        .arg(&source)
+        .arg(source)
         .arg("-o")
-        .arg(&executable)
+        .arg(binary_name())
         .output()?;
     check_cancelled(cancelled)?;
     if !compile.status.success() {
@@ -127,7 +117,7 @@ where
         });
     }
 
-    let run = Command::new(&executable).output()?;
+    let run = Command::new(&executable).current_dir(staging).output()?;
     check_cancelled(cancelled)?;
     if !run.status.success() {
         return Err(BuildError::ProbeFailed {
@@ -150,19 +140,33 @@ fn check_cancelled<F: FnMut() -> bool>(cancelled: &mut F) -> Result<(), BuildErr
     }
 }
 
-fn create_staging_dir(root: &Path) -> Result<PathBuf, BuildError> {
+fn create_staging_dir(root: &Path) -> Result<(PathBuf, PathBuf), BuildError> {
     for _ in 0..100 {
-        let path = unique_path(root, "staging");
-        let created = create_private_dir(&path);
-        match created {
-            Ok(()) => return Ok(path),
+        let id = next_id();
+        let staging = root.join(format!("staging-{id}"));
+        let generation = root.join(format!("generation-{id}"));
+        match create_private_dir(&staging) {
+            Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error.into()),
+        }
+
+        // Holding the staging name reserves this ID among probe instances.
+        // A previous process may already have promoted the same ID.
+        match fs::symlink_metadata(&generation) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok((staging, generation));
+            }
+            Ok(_) => fs::remove_dir(&staging)?,
+            Err(error) => {
+                let _ = fs::remove_dir(&staging);
+                return Err(BuildError::Publication(error));
+            }
         }
     }
     Err(io::Error::new(
         io::ErrorKind::AlreadyExists,
-        "could not allocate unique staging directory",
+        "could not reserve a unique build generation",
     )
     .into())
 }
@@ -179,29 +183,13 @@ fn create_private_dir(path: &Path) -> io::Result<()> {
     fs::create_dir(path)
 }
 
-fn unique_path(root: &Path, prefix: &str) -> PathBuf {
+fn next_id() -> String {
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    root.join(format!("{prefix}-{}-{nonce}-{id}", std::process::id()))
-}
-
-fn new_generation_path(root: &Path) -> Result<PathBuf, BuildError> {
-    for _ in 0..100 {
-        let candidate = unique_path(root, "generation");
-        match fs::symlink_metadata(&candidate) {
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(candidate),
-            Ok(_) => continue,
-            Err(error) => return Err(error.into()),
-        }
-    }
-    Err(io::Error::new(
-        io::ErrorKind::AlreadyExists,
-        "could not allocate a unique generation path",
-    )
-    .into())
+    format!("{}-{nonce}-{id}", std::process::id())
 }
 
 fn binary_name() -> &'static std::ffi::OsStr {
@@ -218,19 +206,13 @@ fn binary_name() -> &'static std::ffi::OsStr {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     struct TempDir(PathBuf);
 
     impl TempDir {
         fn new() -> Self {
-            let n = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
-            let path =
-                std::env::temp_dir().join(format!("oot-build-test-{}-{n}", std::process::id()));
-            fs::create_dir(&path).unwrap();
+            let path = std::env::temp_dir().join(format!("oot-build-test-{}", next_id()));
+            create_private_dir(&path).unwrap();
             Self(path)
         }
     }
@@ -266,7 +248,7 @@ mod tests {
         let temp = TempDir::new();
         let previous = prior_generation(&temp.0);
         let config = BuildConfig {
-            compiler: PathBuf::from("/usr/bin/cc"),
+            compiler: temp.0.join("unused-compiler"),
             output_root: temp.0.clone(),
         };
         let mut checks = 0;
