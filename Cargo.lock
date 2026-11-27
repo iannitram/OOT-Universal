@@ -3,6 +3,10 @@
 version = 4
 
 [[package]]
+name = "oot-build-probe"
+version = "0.1.0"
+
+[[package]]
 name = "oot-contracts"
 version = "0.1.0"
 
