@@ -6,7 +6,9 @@ Audit date: 2026-11-26. Baseline: `fdd935716260547c91875617ccbb043bd940b959`, me
 
 | Existing location | API/entry point | Behavior and limits |
 |---|---|---|
-| [`Cargo.toml`](../Cargo.toml), [`Cargo.lock`](../Cargo.lock) | `oot-frame-check` 0.1.0, edition 2021, GPL-3.0-only | Single library/binary package with no external dependencies. Not a workspace or application build. |
+| [`Cargo.toml`](../Cargo.toml), [`Cargo.lock`](../Cargo.lock) | Workspace with root `oot-frame-check` and `oot-contracts`, edition 2021, GPL-3.0-only | Dependency-free Cargo workspace. The root package and CLI remain intact; this is not an application build. |
+| [`crates/contracts/src/copy.rs`](../crates/contracts/src/copy.rs) | `CopyIdentity::new` and normalized accessors | Validates 16-hex program ID, `v` plus decimal version and 8-hex build ID; normalizes hexadecimal case and decimal leading zeroes. This is syntax validation only, not supported-version policy. |
+| [`crates/contracts/src/target.rs`](../crates/contracts/src/target.rs) | `TargetProfile::new`, architecture/platform accessors, `family` | Keeps architecture distinct from platform and classifies desktop/mobile. Rejects combinations outside the current target matrix. |
 | [`src/lib.rs`](../src/lib.rs) | `check_frame<R: Read + Seek>(&mut R) -> io::Result<FrameInfo>` | Seeks to start, parses one standard Zstandard frame, checks block limits/bounds, optional checksum bytes and exact end. Skips payload; rejects concatenated/skippable frames. Returns framing results, not proof of decompressibility. |
 | [`src/lib.rs`](../src/lib.rs) | `FrameInfo { content_size: Option<u64>, dictionary_id: Option<u32>, has_checksum: bool, blocks: u64 }` | Size/dictionary are declared metadata; checksum flag is presence only. Callers must not treat any field as authenticated. |
 | [`src/lib.rs`](../src/lib.rs) | Private `bytes`, `invalid`; four unit tests | Little-endian reads and typed IO errors. Tests metadata, valid layout, truncation, reserved fields/trailing data and block/window limits. |
@@ -16,7 +18,7 @@ Audit date: 2026-11-26. Baseline: `fdd935716260547c91875617ccbb043bd940b959`, me
 | [`PEERS.md`](../PEERS.md) | Imported-code ledger | Source commit and GPL credit for Rust frame walker. Full import branches are reference material; they are not source directories on main. |
 | [`docs/adr/README.md`](adr/README.md) | ADR convention | No numbered architecture decision exists yet. Spec/base/UI decisions must not be inferred from proposed names below. |
 
-Current invocation: `cargo run --locked -- path/to/frame.zs [another.zs]`. Current validation: `cargo fmt --check`, `cargo test --locked`, `cargo clippy --locked --all-targets -- -D warnings`. These check the existing package only. Run them with pinned Rust 1.100.0; see [`docs/validation/local-checks.md`](validation/local-checks.md) for target-check and fixture boundaries.
+Current invocation: `cargo run --locked -- path/to/frame.zs [another.zs]`. Current validation: `cargo fmt --all --check`, `cargo test --locked --workspace`, `cargo clippy --locked --workspace --all-targets -- -D warnings`, and workspace target checks. Run them with pinned Rust 1.100.0; see [`docs/validation/local-checks.md`](validation/local-checks.md). No settings persistence or serialization format is implemented.
 
 ## Proposed ownership and layout
 
@@ -24,7 +26,7 @@ Keep the current root package and CLI stable while introducing a Cargo workspace
 
 | Proposed path | Package | Responsibility / code to add | Depends on |
 |---|---|---|---|
-| `crates/contracts/src/{copy,build,settings,session,error}.rs` | U02 | `CopyIdentity`, `TargetProfile`, `BuildRequest`, versioned `Settings`, `SessionState`, typed `AppError`. Shared data and capabilities only, no toolkit/renderer dependency. | Workspace ADR |
+| `crates/contracts/src/{copy,target}.rs` | U02 | Implemented `CopyIdentity` syntax/normalization and `TargetProfile`; build requests, settings, session state and operational error model remain future work. No toolkit/renderer dependency. | Workspace; G3 decisions for later contracts |
 | `crates/copy/src/{inspect,version,assets,extract}.rs` | U03 | Inspect provided copy, exact identity gate, asset-list validation, bounded decompression/checksum verification, safe extraction to staging. Existing frame helper is one optional early check. | contracts; chosen metadata format |
 | `crates/build/src/{plan,tools,runner,cache,install}.rs` | U04 | Tool discovery/version verification, recompiler/C compilation plan, subprocess execution, cancellation, private cache and atomic promotion. Distinguish host from target toolchain. | contracts, copy, selected recompiler |
 | `third_party/recompiler/` | U01/U04 | Proposed destination for approved, pinned base recompiler and required public support code; preserve license/NOTICE and applicable peer tests. Exact subset chosen after G1. | Base decision and provenance audit |
