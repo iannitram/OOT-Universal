@@ -16,7 +16,11 @@ pub enum PackDecision {
 /// Decides whether and how to start the next local build step.
 ///
 /// Readings outside Android's documented ranges and absent readings are
-/// treated as unknown. The caller supplies fresh readings at step boundaries.
+/// treated as unknown. An unknown battery level cannot trigger a charge wait,
+/// and an unknown thermal status leaves the requested worker count in effect.
+///
+/// The caller supplies fresh readings at step boundaries. Android retains
+/// control of service and process shutdown even when this policy returns Run.
 pub fn decide_pack_step(
     battery_percent: Option<i32>,
     charging: bool,
@@ -44,8 +48,8 @@ mod tests {
             PackDecision::WaitForCharge
         );
         assert_eq!(
-            decide_pack_step(Some(19), true, Some(2), 4),
-            PackDecision::Run { workers: 4 }
+            decide_pack_step(Some(19), true, Some(3), 4),
+            PackDecision::Run { workers: 1 }
         );
         assert_eq!(
             decide_pack_step(Some(20), false, Some(2), 4),
