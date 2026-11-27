@@ -28,6 +28,8 @@ Current invocation: `cargo run --locked -- path/to/frame.zs [another.zs]`. Curre
 
 - [`decide_pack_step`](../crates/platform-support/src/android_pack.rs) evaluates battery and thermal readings for the next Android local build step. Device reading adapters and actual worker scheduling are planned.
 
+- [`unexpected_load_names`](../crates/platform-support/src/macos_links.rs) flags machine-specific Mach-O dependency paths. Save the successful output of `otool -arch arm64 -L <binary>` and run `cargo run --locked -p oot-platform-support --example macos_links < report.txt`. Actual dyld resolution and signing still need Mac validation.
+
 ## Proposed ownership and layout
 
 The workspace keeps the current root package and CLI stable. Add workspace members as their responsibilities become concrete. The `crates/` layout below is a proposed separation of responsibilities; split or combine crates in an ADR when actual coupling is understood. Do not generate empty crates simply to make the map appear implemented. Preserve the current helper API or provide an explicit migration if moved later.
