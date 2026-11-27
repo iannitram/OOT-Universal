@@ -18,13 +18,43 @@ peer: Recomper/Longshot | GPL-3.0 | Longshot, most contributors: Windows and Lin
 ### Notes moved from SPEC.md `## Prior art`
 
 Found 2026-11-21. The base choice remains unapproved. On 2026-11-26 the owner authorized focused reuse of useful peer code before that choice; this does not approve a base or the spec.
-No peer yet has a Mac, iPhone/iPad or Android build (PEERS.md). The weekly peer review looks for them.
+The original two peers do not supply a verified Apple or Android build for this project. The survey below records what the wider ecosystem provides.
+
+## Platform peer survey — 2026-11-26
+
+The survey checked public fork networks, branch names, releases, pull requests, and documented ancestry. Stars below are a snapshot from the hosting service. A release or merged PR is source evidence. Local hardware play, reusable code and matching architecture each require separate checks.
+
+### Descendants and shared lineage
+
+| Project | Platform evidence | Fit for this repo |
+|---|---|---|
+| [spacefarergames/RedTunic](https://github.com/spacefarergames/RedTunic) | Direct ProjectReLink fork, 37 stars, GPL-3.0-or-later per NOTICE. [v4.4.0](https://github.com/spacefarergames/RedTunic/releases/tag/v4.4.0) publishes Linux x86-64 AppImage/TAR and Windows ZIP. [Relink PR #212](https://github.com/pixl27/ProjectReLink/pull/212) shows current fork work. | Strong Linux source reference. Evaluate package and desktop-entry code independently of its runtime. Pinned at `bc199725b73f5c2a1d5c2723978379a511a78e66`. |
+| [MagicBeanDev/Longshot](https://git.magicbean.dev/MagicBeanDev/Longshot) | Active Longshot source on Forgejo, 157 stars. Current [nightly](https://git.magicbean.dev/MagicBeanDev/Longshot/releases/tag/nightly-837-7015105c) and GPL-3.0 lineage. The two direct public GitHub forks of `Recomper/Longshot` carry the same default-branch commit as that GitHub copy. | Check this source alongside the stored GitHub snapshot when choosing and pinning a base. The pinned current head at review was `7015105c64ba1d248dec559ce045b9b0e52c5b85`. |
+| [Sacrappy/HeyListen](https://github.com/Sacrappy/HeyListen) | Sibling Hookshot fork that credits Longshot changes, 302 stars, GPL-3.0. Its Linux AppImage workflow and [merged Linux fix](https://github.com/Sacrappy/HeyListen/pull/138) provide recent packaging evidence. | Linux support reference. Shared ancestry does not make its runtime a drop-in replacement. |
+
+The ProjectReLink survey also found the unreleased [Bazzite branch](https://github.com/viktorsparda/ProjectReLink/tree/linux-bazzite) and [Linux prototype](https://github.com/ren14-ux/ProjectReLink/tree/linux-port). RedTunic has the stronger release and activity record. The public fork survey did not identify a completed direct macOS, iOS or Android port of either named GitHub peer.
+
+### Adjacent Apple and Android projects
+
+| Project | Platform evidence | Fit for this repo |
+|---|---|---|
+| [seedds/nxnative](https://github.com/seedds/nxnative) | Separate lineage, 16,791 stars, MIT. Apple ARM64 tooling, a [same-update Mac report](https://github.com/seedds/nxnative/discussions/1789), and a [user-reported v131072 iPhone 18 Pro install and play session](https://github.com/seedds/nxnative/blob/b2743d11be3bf81f0bb5e0c37ef2b95742151c78/dm/games/0400486024DEC000/README.md#reported-iphone-18-pro-install-and-gameplay). The user installed via Xcode with a free Apple ID. Active source at `b2743d11be3bf81f0bb5e0c37ef2b95742151c78`. | Apple compiler capability probe candidate. The iPhone account establishes one reported configuration on the separate nxnative stack. Our device and re-sign gates remain open. |
+| [LNPANDY/NX2Apple](https://github.com/LNPANDY/NX2Apple) | MIT, 8,603 stars. macOS and iOS tooling built around nxnative. [Signing renewal PR #1651](https://github.com/LNPANDY/NX2Apple/pull/1651) merged Nov 26. | Provisioning-expiry and Apple workflow reference. Our own cable install and re-sign checks remain open. |
+| [RedSolos/ocarina](https://github.com/RedSolos/ocarina) | MIT, 1 star, derived from nxnative through swordboiMacNative. Its Mac-specific README reports open rendering and memory issues. | Same-version Mac feasibility reference with a smaller review and release record. |
+| [moceure/BananaNative](https://git.eden-emu.dev/moceure/BananaNative) | MIT, 81 Forgejo stars. Android preparation on device, [maintained releases](https://git.eden-emu.dev/moceure/BananaNative/releases) and [merged changes](https://git.eden-emu.dev/moceure/BananaNative/pulls/558). Reviewed Android head `ba6094da4407247cba31e546ea7d51a747a11a0a`. | Android build lifecycle and power-policy reference. The pinned donor lists only version 2.0 as experimental for this title. Our supported update is v131072, so the donor release is evidence for its tooling only. |
+| [enjoyerofslop/droidplay-core](https://github.com/enjoyerofslop/droidplay-core) | MIT, 168 stars. [v0.8.14](https://github.com/enjoyerofslop/droidplay-core/releases/tag/v0.8.14) and [merged Android PR #562](https://github.com/enjoyerofslop/droidplay-core/pull/562) show recent Android work. | Adreno and packaging reference. Builds on the desktop and deploys to Android, so the U12 local compiler gate remains open. |
+
+The review queue covers standalone platform infrastructure suitable for synthetic validation. Title-specific assets, generated code and build outputs remain outside the import path. No base or new runtime was selected during this survey.
 
 ## Imported code
 
 | Here | From (repo and commit) | License | Credit |
 |---|---|---|---|
 | `src/lib.rs` frame walker | pixl27/ProjectReLink `tools/dump_check.py`, `check()` at `54af18cda249233a9a9aafcddf5dc317cb3fad42` | GPL-3.0 | ProjectReLink contributors; adapted to Rust with additional header and error checks |
+| `desktop_exec::desktop_exec` | [RedTunic `builder/linux/hookshot_builder.py`](https://github.com/spacefarergames/RedTunic/blob/bc199725b73f5c2a1d5c2723978379a511a78e66/builder/linux/hookshot_builder.py) | GPL-3.0-or-later | RedTunic, Longshot and Hookshot contributors. Rust port of XDG Exec quoting with executable-path validation. |
+| `apple_cpu::audit_m1_macros` | [nxnative `dm/ios/tests/test_cpu_target.py`](https://github.com/seedds/nxnative/blob/b2743d11be3bf81f0bb5e0c37ef2b95742151c78/dm/ios/tests/test_cpu_target.py) | MIT | seedds. Rust adaptation of the M1 macro policy with Apple/AArch64 target checks. |
+| `android_pack::decide_pack_step` | [BananaNative `PackPolicy.java`](https://git.eden-emu.dev/moceure/BananaNative/src/commit/ba6094da4407247cba31e546ea7d51a747a11a0a/android/app/src/ondevice/java/dev/nxnative/android/PackPolicy.java) | MIT | BananaNative contributors. Rust power and thermal decision with explicit unknown handling. |
+| `macos_links::unexpected_load_names` | [NX2Apple `frontend/tools/check_bundle.sh`](https://github.com/LNPANDY/NX2Apple/blob/8aad909bb5d0bfee39583dabf1d15d924b9f156c/frontend/tools/check_bundle.sh#L27) | MIT | NX2Apple contributors. Rust adaptation of the dependency path policy for one Mach-O load report. |
 
 Reviewed live 2026-11-26: ProjectReLink `main` at `54af18cda249233a9a9aafcddf5dc317cb3fad42`; Longshot `main` at `fa2cc03aa5c2369dea53856d4b11bdb9d0299b3b`. Longshot’s builder and shader-cache validator are coupled to its setup or runtime; none is imported here.
 
