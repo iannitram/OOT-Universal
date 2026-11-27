@@ -1,6 +1,6 @@
 # G2 synthetic instruction probe
 
-This runs the vendored per-instruction AArch64-to-C emitter from both pinned candidate import commits using the project-authored encoding `0x91001c00` (`add x0, x0, #7`). Git reads the two source files directly from each object database into a temporary directory. No game copy, image, generated game code, or donor source is stored in this repository. The temporary emitter binaries and C are removed after the probe exits. Fetch the import branches first if the pinned commits are not locally available.
+This runs the vendored per-instruction AArch64-to-C emitter from both pinned candidate import commits using the project-authored encoding `0x91001c00` (`add x0, x0, #7`). Git reads the two source files from the local Git object database into a temporary directory. Donor source remains in the import branches; this probe commits no donor code. No game copy, image, or generated game code is used. The temporary emitter binaries and C are removed after the probe exits. Fetch the import branches first if the pinned commits are not locally available.
 
 Requirements: Python 3, Git, a working host Clang C/C++ toolchain and an AArch64-capable Clang backend. On Windows the C++ toolchain must have a working C++ standard library and linker. Pass explicit executables with `--clang` and `--clangxx` if they are not on PATH. Run from the repository root:
 
