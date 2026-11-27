@@ -28,7 +28,7 @@ Current invocation: `cargo run --locked -- path/to/frame.zs [another.zs]`. Curre
 
 - [`decide_pack_step`](../crates/platform-support/src/android_pack.rs) evaluates battery and thermal readings for the next Android local build step. Device reading adapters and actual worker scheduling are planned.
 
-- [`unexpected_load_names`](../crates/platform-support/src/macos_links.rs) flags machine-specific Mach-O dependency paths. Save the successful output of `otool -arch arm64 -L <binary>` and run `cargo run --locked -p oot-platform-support --example macos_links < report.txt`. Actual dyld resolution and signing still need Mac validation.
+- [`unexpected_load_names`](../crates/platform-support/src/macos_links.rs) flags machine-specific Mach-O dependency paths. Run `otool -arch arm64 -L <binary>` and check that it exits successfully before saving stdout as `report.txt`; then run `cargo run --locked -p oot-platform-support --example macos_links < report.txt`. Empty stdout is rejected, while a valid header-only report means the binary has no dylib dependencies and is accepted with an explanatory message. Actual dyld resolution and signing still need Mac validation.
 
 ## Proposed ownership and layout
 

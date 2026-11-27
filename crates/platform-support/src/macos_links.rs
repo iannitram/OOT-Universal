@@ -9,7 +9,9 @@ pub struct InvalidReport {
 
 /// Finds load names that fall outside the donor's system and dyld-relative policy.
 ///
-/// Use the successful output of `otool -arch arm64 -L` for a single binary.
+/// Pass stdout from a successful `otool -arch arm64 -L` invocation for one binary.
+/// A header followed by no load rows is a valid no-dylib report; empty stdout is
+/// invalid because it contains no report header.
 /// This checks path spelling. Bundle validation must also resolve dyld-relative
 /// names against the actual executable, loader and run paths.
 pub fn unexpected_load_names(report: &str) -> Result<Vec<&str>, InvalidReport> {
@@ -148,5 +150,10 @@ mod tests {
             unexpected_load_names(malformed),
             Err(InvalidReport { line: 2 })
         );
+    }
+
+    #[test]
+    fn accepts_header_only_report_for_macho_without_dylibs() {
+        assert_eq!(unexpected_load_names("fixture:\n"), Ok(vec![]));
     }
 }

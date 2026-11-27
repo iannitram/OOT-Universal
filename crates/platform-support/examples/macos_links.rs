@@ -8,7 +8,12 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
     match oot_platform_support::macos_links::unexpected_load_names(&report) {
-        Ok(names) if names.is_empty() => ExitCode::SUCCESS,
+        Ok(names) if names.is_empty() => {
+            if report.lines().count() == 1 {
+                println!("No dylib dependencies reported");
+            }
+            ExitCode::SUCCESS
+        }
         Ok(names) => {
             for name in names {
                 eprintln!("Unexpected Mach-O load name: {name:?}");
