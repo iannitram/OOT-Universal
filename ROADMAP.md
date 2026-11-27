@@ -66,6 +66,7 @@ Critical path: establish toolchain and portability evidence (U00–U01), then ex
 | U12 Android packaging and local build — blocked by feasibility | G2, G4–G5, U04–U06, U08–U09 | Android app shell/entry, SDK/NDK linkage, Gradle package, Storage Access Framework import, validated app-local compiler and generated-library loading; controller and surface lifecycle. | Adreno device builds from owner copy and plays; rotation/background/surface loss and storage pressure preserve state. Host NDK compilation alone is not on-device compilation. | M6, M18–M19 |
 
 - Prove the Android ARM64 path with a synthetic C/Rust library first. Use the Android SDK, NDK and Gradle for host builds and `adb` for installation and device logs. Separately prove the compiler and loader that can run on the phone under the app's storage and execution rules.
+- Compare Android lifecycle and power handling with the [peer survey](PEERS.md#adjacent-apple-and-android-projects). BananaNative lists version 2.0 on its separate stack. Verify our supported update and local build path independently.
 - Integrate Storage Access Framework input, app-private staging, Adreno Vulkan capability checks, controller mapping, audio, and surface/background recovery. Measure storage, memory and build time on the target device.
 - Gate delivery on an owner-copy build and successful play on Adreno. Confirm save preservation across process death and updates. A host-built APK and a Rust target check cover earlier stages.
 
@@ -76,6 +77,7 @@ Critical path: establish toolchain and portability evidence (U00–U01), then ex
 | U11 Apple packaging and lifecycle — blocked by feasibility | G2, G5, U04–U05, U07–U09 | Apple silicon Mac app; target-specific C linking, Xcode SDK/signing, iOS bundle, cable install/re-sign support, sandbox imports, controller APIs and pause/resume. | Native Mac play; iPhone/iPad install, all mapped buttons, resume and re-sign after actual expiry. Mac-generated artifact remains private and per-device; no build hub or redistribution. | M6, M16–M17, M19 |
 
 - Start with a synthetic Rust/C app linked with Xcode and the iOS SDK. Keep simulator and device targets separate. Prove physical-device installation and execution before adopting a game-library packaging approach.
+- The [peer survey](PEERS.md#adjacent-apple-and-android-projects) includes a user-reported Xcode install with a free Apple ID on an iPhone 18 Pro running nxnative. Use that report as a feasibility lead and repeat the tests with our build and signing route.
 - Resolve the M6 and iOS platform-row wording with the owner. The current platform row puts the Apple toolchain on the Mac. Prove local build, link, provisioning, cable installation, expiry reporting, and one-step re-signing with the owner's free Apple ID.
 - Implement native Metal and MetalFX where supported, Game Controller input, sandboxed imports, and pause/resume and save recovery. Gate on mapped Xbox, PlayStation or MFi input, play on an iPhone or iPad, and re-signing after expiry.
 
