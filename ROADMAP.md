@@ -67,7 +67,7 @@ Critical path: establish toolchain and portability evidence (U00–U01), then ex
 
 - Prove the Android ARM64 path with a synthetic C/Rust library first. Use the Android SDK, NDK and Gradle for host builds and `adb` for installation and device logs. Separately prove the compiler and loader that can run on the phone under the app's storage and execution rules.
 - Compare Android lifecycle and power handling with the [peer survey](PEERS.md#adjacent-apple-and-android-projects). BananaNative lists version 2.0 on its separate stack. Verify our supported update and local build path independently.
-- Integrate Storage Access Framework input, app-private staging, Adreno Vulkan capability checks, controller mapping, audio, and surface/background recovery. Measure storage, memory and build time on the target device.
+- Wire the imported BananaNative battery and thermal policy into the future local build scheduler at step boundaries. Integrate Storage Access Framework input, app-private staging, Adreno Vulkan capability checks, controller mapping, audio, and surface/background recovery. Measure storage, memory and build time on the target device.
 - Gate delivery on an owner-copy build and successful play on Adreno. Confirm save preservation across process death and updates. A host-built APK and a Rust target check cover earlier stages.
 
 ## iOS and iPadOS
