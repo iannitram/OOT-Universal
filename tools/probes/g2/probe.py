@@ -55,7 +55,6 @@ def translate(library):
     return result
 
 
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--clang", default="clang")

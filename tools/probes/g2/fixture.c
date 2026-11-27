@@ -7,7 +7,7 @@ typedef struct {
     int fault;
 } Ctx;
 
-static const uint64_t g_module_base = 0;
+static const uint64_t g_module_base = 0x20000;
 
 /* Synthetic guest memory is little-endian and addresses are byte offsets. */
 static void recomp_store64(Ctx *c, uint64_t address, uint64_t value) {
@@ -44,8 +44,8 @@ static void branch(Ctx *c) {
 static int branch_destination(Ctx *c) {
     branch(c);
     switch (c->pc) {
-    case 0x10008: return 1;
-    case 0x10004: return 2;
+    case 0x30008: return 1;
+    case 0x30004: return 2;
     default: return 0;
     }
 }
@@ -56,6 +56,17 @@ static void store(Ctx *c) {
 
 static void load(Ctx *c) {
 #include "load.inc"
+}
+
+static int memory_matches(const Ctx *c) {
+    static const uint8_t expected[] = {
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01,
+    };
+    for (unsigned i = 0; i < sizeof(expected); ++i) {
+        if (c->memory[i] != expected[i]) return 0;
+    }
+    return 1;
 }
 
 int main(void) {
@@ -75,12 +86,13 @@ int main(void) {
     c.x[0] = UINT64_C(0x0123456789abcdef);
     c.x[1] = 8;
     store(&c);
-    if (c.fault || c.memory[8] != 0xef || c.memory[15] != 0x01) return 5;
+    if (c.fault || !memory_matches(&c)) return 5;
     load(&c);
     if (c.fault || c.x[2] != c.x[0]) return 6;
+    c.x[0] = 0;
     c.x[1] = 9;
     store(&c);
-    if (!c.fault || c.memory[8] != 0xef || c.memory[15] != 0x01) return 7;
+    if (!c.fault || !memory_matches(&c)) return 7;
     c.fault = 0;
     load(&c);
     if (!c.fault || c.x[2] != 0) return 8;
