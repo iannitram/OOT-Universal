@@ -27,11 +27,7 @@ pub fn unexpected_load_names(report: &str) -> Result<Vec<&str>, InvalidReport> {
         else {
             return Err(InvalidReport { line: line_number });
         };
-        if name.is_empty()
-            || !line.starts_with(char::is_whitespace)
-            || !versions.ends_with(')')
-            || !versions.contains(", current version ")
-        {
+        if name.is_empty() || !line.starts_with(char::is_whitespace) || !valid_versions(versions) {
             return Err(InvalidReport { line: line_number });
         }
         if !allowed(name) {
@@ -39,6 +35,33 @@ pub fn unexpected_load_names(report: &str) -> Result<Vec<&str>, InvalidReport> {
         }
     }
     Ok(unexpected)
+}
+
+fn valid_versions(text: &str) -> bool {
+    let Some((compatibility, current)) = text
+        .strip_suffix(')')
+        .and_then(|body| body.split_once(", current version "))
+    else {
+        return false;
+    };
+    let current = match current.split_once(", ") {
+        Some((version, "weak" | "reexport" | "upward" | "lazy")) => version,
+        Some(_) => return false,
+        None => current,
+    };
+    fn numeric_triplet(version: &str) -> bool {
+        let mut parts = version.split('.');
+        [u16::MAX, u8::MAX.into(), u8::MAX.into()]
+            .into_iter()
+            .all(|max| {
+                parts.next().is_some_and(|part| {
+                    part.bytes().all(|byte| byte.is_ascii_digit())
+                        && part.parse::<u16>().is_ok_and(|value| value <= max)
+                })
+            })
+            && parts.next().is_none()
+    }
+    numeric_triplet(compatibility) && numeric_triplet(current)
 }
 
 fn allowed(name: &str) -> bool {
@@ -104,10 +127,25 @@ mod tests {
     }
 
     #[test]
+    fn accepts_architecture_header_and_annotated_dylibs() {
+        let report = concat!(
+            "Example.app/Contents/MacOS/Example (architecture arm64):\n",
+            "\t/System/Library/Frameworks/Metal.framework/Metal (compatibility version 1.0.0, current version 1.2.3, weak)\n",
+            "\t@rpath/Framework.dylib (compatibility version 0.0.0, current version 1.2.3, reexport)\n",
+        );
+        assert!(unexpected_load_names(report).unwrap().is_empty());
+    }
+
+    #[test]
     fn rejects_empty_tool_output_and_malformed_rows() {
         assert_eq!(unexpected_load_names(""), Err(InvalidReport { line: 1 }));
         assert_eq!(
             unexpected_load_names("sample:\ninvalid"),
+            Err(InvalidReport { line: 2 })
+        );
+        let malformed = "sample:\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version garbage)";
+        assert_eq!(
+            unexpected_load_names(malformed),
             Err(InvalidReport { line: 2 })
         );
     }
