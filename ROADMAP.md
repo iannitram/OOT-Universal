@@ -99,7 +99,7 @@ Critical path: establish toolchain and portability evidence (U00–U01), then ex
 ## Linux (SteamOS)
 
 - U10 shares packaging ownership with Windows. Build with native Rust and the selected C/C++ toolchain, and validate Vulkan loader/driver behavior, paths, controller input and audio on actual SteamOS. Benchmark both peers under comparable settings before choosing the base.
-- Evaluate Longshot's Linux build and AppImage tooling as source references. Check portability, package dependency boundaries and licensing independently of the peer renderer. Validate clean installs in the distribution format chosen for this project.
+- The RedTunic adaptation adds an XDG desktop Exec quoting helper on this branch. Desktop entry installation and Steam registration remain separate work. Evaluate Longshot's Linux build and AppImage tooling as source references. Check portability, package dependency boundaries and licensing independently of the peer renderer. Validate clean installs in the distribution format chosen for this project.
 - Register the launcher and permitted artwork with Steam, preserve unrelated entries, and test Game Mode launch and built-in controls. Gate on both handhelds, a one-hour play check, 30-minute frame-time soaks at native screen size, and save/update recovery.
 
 ## Requirement coverage and immediate queue

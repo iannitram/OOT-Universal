@@ -20,3 +20,7 @@ dependencies = [
 [[package]]
 name = "oot-frame-check"
 version = "0.1.0"
+
+[[package]]
+name = "oot-platform-support"
+version = "0.1.0"

@@ -51,6 +51,7 @@ The review queue covers standalone platform infrastructure suitable for syntheti
 | Here | From (repo and commit) | License | Credit |
 |---|---|---|---|
 | `src/lib.rs` frame walker | pixl27/ProjectReLink `tools/dump_check.py`, `check()` at `54af18cda249233a9a9aafcddf5dc317cb3fad42` | GPL-3.0 | ProjectReLink contributors; adapted to Rust with additional header and error checks |
+| `desktop_exec::desktop_exec` | [RedTunic `builder/linux/hookshot_builder.py`](https://github.com/spacefarergames/RedTunic/blob/bc199725b73f5c2a1d5c2723978379a511a78e66/builder/linux/hookshot_builder.py) | GPL-3.0-or-later | RedTunic, Longshot and Hookshot contributors. Rust port of XDG Exec quoting with executable-path validation. |
 
 Reviewed live 2026-11-26: ProjectReLink `main` at `54af18cda249233a9a9aafcddf5dc317cb3fad42`; Longshot `main` at `fa2cc03aa5c2369dea53856d4b11bdb9d0299b3b`. Longshot’s builder and shader-cache validator are coupled to its setup or runtime; none is imported here.
 

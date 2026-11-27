@@ -20,6 +20,10 @@ Audit date: 2026-11-26. Baseline: `fdd935716260547c91875617ccbb043bd940b959`, me
 
 Current invocation: `cargo run --locked -- path/to/frame.zs [another.zs]`. Current validation: `cargo fmt --all --check`, `cargo test --locked --workspace`, `cargo clippy --locked --workspace --all-targets -- -D warnings`, and workspace target checks. Run them with pinned Rust 1.100.0; see [`docs/validation/local-checks.md`](validation/local-checks.md). No settings persistence or serialization format is implemented.
 
+### Platform support in the open PR stack
+
+- [`desktop_exec`](../crates/platform-support/src/desktop_exec.rs) generates one XDG Exec value for an absolute executable path. The example emits a synthetic desktop entry for validator checks. Desktop installation and Steam registration are planned.
+
 ## Proposed ownership and layout
 
 The workspace keeps the current root package and CLI stable. Add workspace members as their responsibilities become concrete. The `crates/` layout below is a proposed separation of responsibilities; split or combine crates in an ADR when actual coupling is understood. Do not generate empty crates simply to make the map appear implemented. Preserve the current helper API or provide an explicit migration if moved later.
