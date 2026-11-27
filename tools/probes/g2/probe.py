@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Exercise one synthetic AArch64 instruction through both pinned emitters."""
+"""Exercise synthetic AArch64 instructions through both pinned emitters."""
 import argparse
 import ctypes
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -33,16 +34,25 @@ def translate(library):
         ctypes.POINTER(ctypes.c_longlong), ctypes.POINTER(ctypes.c_int),
     ]
     fn.restype = ctypes.c_longlong
-    words = (ctypes.c_uint32 * 1)(0x91001c00)  # add x0, x0, #7
-    pcs = (ctypes.c_uint64 * 1)(0x10000)
-    offsets = (ctypes.c_longlong * 2)()
-    flags = (ctypes.c_int * 1)()
-    output = ctypes.create_string_buffer(65536)
-    size = fn(words, pcs, 1, output, len(output), offsets, flags)
-    if (flags[0] or size <= 0 or size > len(output)
-            or offsets[0] != 0 or offsets[1] != size):
-        raise RuntimeError("instruction was not translated as an ordinary instruction")
-    return output.raw[:size].decode("ascii")
+    instructions = {
+        "add": (0x91001c00, 0),     # add x0, x0, #7
+        "branch": (0xb4000040, 2),  # cbz x0, 0x10008
+        "store": (0xf9000020, 0),   # str x0, [x1]
+        "load": (0xf9400022, 0),    # ldr x2, [x1]
+    }
+    result = {}
+    for name, (word, expected_flags) in instructions.items():
+        words = (ctypes.c_uint32 * 1)(word)
+        pcs = (ctypes.c_uint64 * 1)(0x10000)
+        offsets = (ctypes.c_longlong * 2)()
+        flags = (ctypes.c_int * 1)()
+        output = ctypes.create_string_buffer(65536)
+        size = fn(words, pcs, 1, output, len(output), offsets, flags)
+        if (flags[0] != expected_flags or size <= 0 or size > len(output)
+                or offsets[0] != 0 or offsets[1] != size):
+            raise RuntimeError(f"unexpected translation or flags for {name}")
+        result[name] = output.raw[:size].decode("ascii")
+    return result
 
 
 def main():
@@ -52,7 +62,7 @@ def main():
     parser.add_argument("--child", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.child:
-        print(translate(args.child), end="")
+        print(json.dumps(translate(args.child)))
         return
     with tempfile.TemporaryDirectory(prefix="oot-g2-") as tmp:
         root = Path(tmp)
@@ -75,17 +85,18 @@ def main():
             if os.name != "nt":
                 cmd.append("-fPIC")
             run(*cmd, str(directory / "a64emit.cpp"), "-o", str(library))
-            emitted = subprocess.check_output(
+            emitted = json.loads(subprocess.check_output(
                 [sys.executable, __file__, "--child", str(library)], cwd=ROOT
-            ).decode("ascii")
-            (directory / "translated.inc").write_text(emitted, encoding="ascii")
+            ))
+            for instruction, text in emitted.items():
+                (directory / f"{instruction}.inc").write_text(text, encoding="ascii")
             exe = directory / ("probe.exe" if os.name == "nt" else "probe")
             common = ["-std=c11", "-Wall", "-Wextra", "-Werror", "-I", str(directory)]
             run(args.clang, *common, str(FIXTURE), "-o", str(exe))
             run(str(exe))
             run(args.clang, "--target=aarch64-none-elf", "-ffreestanding", *common,
                 "-c", str(FIXTURE), "-o", str(directory / "probe-aarch64.o"))
-            print(f"{name}: translated ADD, native execution passed, "
+            print(f"{name}: ADD, branch and memory native checks passed, "
                   "AArch64 object compiled", flush=True)
 
 

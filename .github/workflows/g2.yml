@@ -1,0 +1,44 @@
+name: G2 ARM64 translation probe
+on:
+  pull_request:
+    paths:
+      - 'tools/probes/g2/**'
+      - '.github/workflows/g2.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tools/probes/g2/**'
+      - '.github/workflows/g2.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  g2-macos-arm64:
+    name: G2 synthetic probe (macOS ARM64)
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Confirm ARM64 runner
+        run: |
+          architecture="$(uname -m)"
+          echo "uname -m: ${architecture}"
+          test "${architecture}" = arm64
+
+      - name: Fetch pinned public emitter imports
+        run: |
+          git fetch --no-tags --depth=1 origin \
+            16cba0845075868d211c63674156fa37401d852e \
+            fa2cc03aa5c2369dea53856d4b11bdb9d0299b3b
+
+      - name: Verify Apple Clang and run probe
+        run: |
+          clang --version
+          clang++ --version
+          python3 --version
+          python3 tools/probes/g2/probe.py
