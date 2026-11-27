@@ -84,7 +84,7 @@ Critical path: establish toolchain and portability evidence (U00–U01), then ex
 ## macOS
 
 - U11 shares source with iOS and has its own desktop validation. Build and link for Apple silicon with Xcode command-line tools, SDK, Clang, and Rust's `aarch64-apple-darwin` target. Verify selected recompiler output and desktop host ABI without Rosetta.
-- Bring up native Metal presentation and MetalFX after synthetic shader and resource tests. Add bundle paths, controller and audio support, game-library loading, and save-safe updates.
+- Use the imported NX2Apple Mach-O path check as one bundle validation step, then verify resolved libraries and signatures on a Mac. Bring up native Metal presentation and MetalFX after synthetic shader and resource tests. Add bundle paths, controller and audio support, game-library loading, and save-safe updates.
 - Gate on an owner-copy build, installed native app, controller play and save round trip on an Apple silicon Mac.
 
 ## Windows
