@@ -7,5 +7,12 @@ name = "oot-contracts"
 version = "0.1.0"
 
 [[package]]
+name = "oot-copy"
+version = "0.1.0"
+dependencies = [
+ "oot-contracts",
+]
+
+[[package]]
 name = "oot-frame-check"
 version = "0.1.0"
