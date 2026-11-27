@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "crates/contracts"]
+resolver = "2"
+
 [package]
 name = "oot-frame-check"
 version = "0.1.0"
