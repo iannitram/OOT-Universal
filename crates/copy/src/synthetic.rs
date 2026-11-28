@@ -139,6 +139,10 @@ impl std::error::Error for SyntheticAcceptanceError {
 
 /// Validates supported identity and exactly the two authored synthetic assets.
 ///
+/// The fixture consists of `fixture/manifest.bin` with the bytes
+/// `oot-synthetic-fixture-v1\n` and `fixture/payload.bin` with the eight
+/// bytes `4f 4f 54 00 01 7f 80 ff`. Names are compared as exact labels.
+///
 /// Count, name length, and byte length bounds are checked before asset-name or
 /// content comparisons. The returned token borrows the caller's original
 /// immutable slices. This is synthetic fixture acceptance only; it says
