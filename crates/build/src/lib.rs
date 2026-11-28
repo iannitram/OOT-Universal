@@ -1,9 +1,9 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 const FIXTURE: &str = include_str!("../fixtures/synthetic.c");
@@ -60,8 +60,8 @@ pub struct BuildConfig {
 
 /// Compile and execute the bundled fixture, then atomically publish a new generation.
 ///
-/// Cancellation is checked between operations. A running compiler or executable is not
-/// interrupted; the predicate is checked again when that child exits.
+/// A running compiler is not interrupted. Cancellation kills and reaps the direct
+/// synthetic executable child; it does not manage any descendants.
 pub fn build_synthetic<F>(config: &BuildConfig, mut cancelled: F) -> Result<PathBuf, BuildError>
 where
     F: FnMut() -> bool,
@@ -117,15 +117,58 @@ where
         });
     }
 
-    let run = Command::new(&executable).current_dir(staging).output()?;
+    let capture_id = next_id();
+    let stdout_path = staging.join(format!("stdout-{capture_id}"));
+    let stderr_path = staging.join(format!("stderr-{capture_id}"));
+    let stdout = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&stdout_path)?;
+    let stderr = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&stderr_path)?;
+    let mut child = Command::new(&executable)
+        .current_dir(staging)
+        .stdout(Stdio::from(stdout))
+        .stderr(Stdio::from(stderr))
+        .spawn()?;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {}
+            Err(error) => {
+                let _ = child.kill();
+                child.wait()?;
+                return Err(error.into());
+            }
+        }
+        if cancelled() {
+            // An exit racing with kill is harmless if wait confirms it was reaped.
+            if let Err(error) = child.kill() {
+                if child.try_wait()?.is_none() {
+                    child.wait()?;
+                    return Err(error.into());
+                }
+            } else {
+                child.wait()?;
+            }
+            return Err(BuildError::Cancelled);
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
     check_cancelled(cancelled)?;
-    if !run.status.success() {
+    let stdout = fs::read(&stdout_path)?;
+    let stderr = fs::read(&stderr_path)?;
+    fs::remove_file(stdout_path)?;
+    fs::remove_file(stderr_path)?;
+    if !status.success() {
         return Err(BuildError::ProbeFailed {
-            status: run.status.code(),
-            stderr: String::from_utf8_lossy(&run.stderr).into_owned(),
+            status: status.code(),
+            stderr: String::from_utf8_lossy(&stderr).into_owned(),
         });
     }
-    let output = String::from_utf8_lossy(&run.stdout).into_owned();
+    let output = String::from_utf8_lossy(&stdout).into_owned();
     if output != EXPECTED_OUTPUT {
         return Err(BuildError::UnexpectedOutput(output));
     }

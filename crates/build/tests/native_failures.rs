@@ -256,4 +256,23 @@ int main(int argc, char **argv) {
         other => panic!("expected unexpected output, got {other:?}"),
     }
     assert_prior_generation(&output_root, &previous);
+    // The executable marks its own start, then runs until the build kills it.
+    fs::write(
+        &fixture_source,
+        "#define _CRT_SECURE_NO_WARNINGS\n#include <stdio.h>\nint main(void) { FILE *f = fopen(\"running-marker\", \"wb\"); if (!f) return 1; if (fclose(f)) return 2; for (;;) {} }\n",
+    )
+    .unwrap();
+    build(&fixture_source, &fixture);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let cancelled = build_synthetic(&bad_config, || {
+        assert!(std::time::Instant::now() < deadline, "probe did not start");
+        fs::read_dir(&output_root).unwrap().any(|entry| {
+            let path = entry.unwrap().path();
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with("staging-"))
+                && path.join("running-marker").exists()
+        })
+    });
+    assert!(matches!(cancelled, Err(BuildError::Cancelled)));
+    assert_prior_generation(&output_root, &previous);
 }
