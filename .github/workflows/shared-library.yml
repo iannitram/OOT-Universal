@@ -1,0 +1,16 @@
+name: Shared library probe
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  linux-load:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile, load, check symbols, and unload
+        run: bash tools/probes/shared-library/run-linux.sh
