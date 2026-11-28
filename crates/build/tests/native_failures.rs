@@ -33,12 +33,8 @@ const PROBE_NAME: &str = "probe.exe";
 #[cfg(not(windows))]
 const PROBE_NAME: &str = "probe";
 
-fn run_probe(path: &Path) -> std::process::Output {
-    Command::new(path).output().expect("run published probe")
-}
-
 fn assert_probe_output(path: &Path) {
-    let output = run_probe(path);
+    let output = Command::new(path).output().expect("run probe");
     assert!(output.status.success());
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
@@ -50,11 +46,17 @@ fn assert_probe_output(path: &Path) {
     );
 }
 
-fn assert_no_staging(root: &Path) {
-    for entry in fs::read_dir(root).expect("read output root") {
-        let name = entry.unwrap().file_name();
-        assert!(!name.to_string_lossy().starts_with("staging-"));
-    }
+fn assert_prior_generation(root: &Path, previous: &Path) {
+    let entries: Vec<_> = fs::read_dir(root)
+        .expect("read output root")
+        .map(|entry| entry.expect("read output root entry").file_name())
+        .collect();
+    assert_eq!(
+        entries,
+        [previous.file_name().expect("generation name")],
+        "only the prior generation should remain"
+    );
+    assert_probe_output(&previous.join(PROBE_NAME));
 }
 
 #[test]
@@ -122,13 +124,7 @@ fn native_success_compiler_failure_and_post_compile_cancellation() {
         }
         other => panic!("expected compiler failure, got {other:?}"),
     }
-    assert_probe_output(&previous_executable);
-    assert_eq!(
-        fs::read_dir(&output_root).unwrap().count(),
-        1,
-        "only the prior generation should remain after compiler failure"
-    );
-    assert_no_staging(&output_root);
+    assert_prior_generation(&output_root, &previous);
 
     // Cancellation is triggered only by the check after the real compiler has
     // returned. The staged executable is run in that check, proving compilation
@@ -157,11 +153,5 @@ fn native_success_compiler_failure_and_post_compile_cancellation() {
         }
     });
     assert!(matches!(cancelled, Err(BuildError::Cancelled)));
-    assert!(run_probe(&previous_executable).status.success());
-    assert_eq!(
-        fs::read_dir(&output_root).unwrap().count(),
-        1,
-        "only the prior generation should remain"
-    );
-    assert_no_staging(&output_root);
+    assert_prior_generation(&output_root, &previous);
 }
