@@ -1,0 +1,35 @@
+name: Software Vulkan compute probe
+
+on:
+  pull_request:
+    paths:
+      - 'tools/probes/vulkan/**'
+      - '.github/workflows/vulkan-compute.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tools/probes/vulkan/**'
+      - '.github/workflows/vulkan-compute.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lavapipe-compute:
+    name: Ubuntu x86-64 software Vulkan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install Vulkan loader, Lavapipe and shader compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libvulkan-dev mesa-vulkan-drivers glslc
+
+      - name: Compile and run compute probe on Lavapipe
+        run: bash tools/probes/vulkan/run.sh
