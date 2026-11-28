@@ -172,26 +172,21 @@ fn native_probe_failures_preserve_previous_generation() {
     };
     let previous = build_synthetic(&config, || false).expect("establish previous generation");
 
-    // This compiler stand-in copies its adjacent, already compiled fixture to
-    // the requested output path and reports success. No shell is involved.
+    // The stand-in runs inside the staging directory and copies our precompiled
+    // fixture from two levels up to the output filename.
     let wrapper_source = temp.0.join("wrapper.c");
     fs::write(
         &wrapper_source,
         r#"
 #define _CRT_SECURE_NO_WARNINGS
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #ifndef _WIN32
 #include <sys/stat.h>
 #endif
 int main(int argc, char **argv) {
-    size_t n = strlen(argv[0]) + sizeof(".fixture");
-    char *source = malloc(n);
-    if (!source || argc < 2) return 1;
-    snprintf(source, n, "%s.fixture", argv[0]);
-    FILE *in = fopen(source, "rb"), *out = fopen(argv[argc - 1], "wb");
-    free(source);
+    if (argc < 2) return 1;
+    FILE *in = fopen("../../probe-fixture", "rb");
+    FILE *out = fopen(argv[argc - 1], "wb");
     if (!in || !out) return 2;
     int c;
     while ((c = fgetc(in)) != EOF) if (fputc(c, out) == EOF) return 3;
@@ -225,7 +220,7 @@ int main(int argc, char **argv) {
     });
     build(&wrapper_source, &wrapper);
     let fixture_source = temp.0.join("bad_fixture.c");
-    let fixture = PathBuf::from(format!("{}.fixture", wrapper.display()));
+    let fixture = temp.0.join("probe-fixture");
     let bad_config = BuildConfig {
         compiler: wrapper,
         output_root: output_root.clone(),

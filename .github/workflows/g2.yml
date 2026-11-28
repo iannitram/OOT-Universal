@@ -1,4 +1,4 @@
-name: G2 ARM64 translation probe
+name: G2 desktop translation probe
 on:
   pull_request:
     paths:
@@ -53,11 +53,6 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Install hosted LLVM and Clang
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "20.1.8"
-
       - name: Confirm x86-64 runner
         shell: pwsh
         run: |
@@ -75,7 +70,13 @@ jobs:
       - name: Verify hosted Clang and run native probe
         shell: pwsh
         run: |
-          clang --version
-          clang++ --version
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $command = Get-Command clang.exe -ErrorAction SilentlyContinue
+          $clang = if ($command) { $command.Source } else { Join-Path $env:ProgramFiles 'LLVM/bin/clang.exe' }
+          $clang = (Resolve-Path -LiteralPath $clang).Path
+          $clangxx = Join-Path (Split-Path -Parent $clang) 'clang++.exe'
+          & $clang --version
+          & $clangxx --version
           python --version
-          python tools/probes/g2/probe.py --clang clang --clangxx clang++
+          python tools/probes/g2/probe.py --clang $clang --clangxx $clangxx
