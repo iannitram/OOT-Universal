@@ -1,4 +1,4 @@
-name: Software Vulkan compute probe
+name: Software Vulkan probes
 
 on:
   pull_request:
@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 jobs:
-  lavapipe-compute:
+  lavapipe-probes:
     name: Ubuntu x86-64 software Vulkan
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -31,5 +31,5 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes build-essential libvulkan-dev mesa-vulkan-drivers glslc
 
-      - name: Compile and run compute probe on Lavapipe
+      - name: Compile and run compute and offscreen draw probes on Lavapipe
         run: bash tools/probes/vulkan/run.sh
