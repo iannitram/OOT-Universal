@@ -1,0 +1,53 @@
+name: iOS Simulator ABI app
+
+on:
+  pull_request:
+    paths:
+      - 'tools/probes/abi/**'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/ios-simulator-app.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tools/probes/abi/**'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/ios-simulator-app.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ios-simulator-app:
+    name: Package ARM64 iOS Simulator app
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@1.100.0
+        with:
+          targets: aarch64-apple-ios-sim
+
+      - name: Build, package and verify app
+        run: bash tools/probes/abi/package_ios_simulator.sh
+
+      - name: Archive simulator app and verify extraction
+        run: |
+          set -euo pipefail
+          tar -czf target/ios-simulator/OotAbiSimulator.app.tar.gz -C target/ios-simulator OotAbiSimulator.app
+          extracted="$(mktemp -d)"
+          trap 'rm -rf "$extracted"' EXIT
+          tar -xzf target/ios-simulator/OotAbiSimulator.app.tar.gz -C "$extracted"
+          test -x "$extracted/OotAbiSimulator.app/OotAbiSimulator"
+          codesign --verify --strict --verbose=2 "$extracted/OotAbiSimulator.app"
+
+      - name: Upload verified simulator app archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: oot-abi-ios-simulator-arm64
+          path: target/ios-simulator/OotAbiSimulator.app.tar.gz
+          if-no-files-found: error
