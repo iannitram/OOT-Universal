@@ -75,7 +75,7 @@ def main():
         for name, revision in REVISIONS.items():
             directory = root / name
             (directory / "suyu").mkdir(parents=True)
-            for item in ("a64emit.cpp", "suyu/arm64_to_c.h"):
+            for item in ("a64emit.cpp", "a64emit.py", "a64_lift.py", "suyu/arm64_to_c.h"):
                 try:
                     data = subprocess.check_output(
                         ["git", "show", f"{revision}:{SOURCE}{item}"], cwd=ROOT
@@ -102,6 +102,10 @@ def main():
             run(str(exe))
             run(args.clang, "--target=aarch64-none-elf", "-ffreestanding", *common,
                 "-c", str(FIXTURE), "-o", str(directory / "probe-aarch64.o"))
+            run(sys.executable, str(FIXTURE.with_name("lift_child.py")), str(directory),
+                str(library), str(directory / "lifted.inc"))
+            run(args.clang, *common, str(FIXTURE.with_name("lift_fixture.c")), "-o", str(exe))
+            run(str(exe))
             if args.emit_dir is not None:
                 exports[name] = emitted
             print(f"{name}: ADD, branch, memory and vector native checks passed, "
