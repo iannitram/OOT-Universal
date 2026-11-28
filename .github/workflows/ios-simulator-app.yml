@@ -39,11 +39,14 @@ jobs:
         run: |
           set -euo pipefail
           tar -czf target/ios-simulator/OotAbiSimulator.app.tar.gz -C target/ios-simulator OotAbiSimulator.app
-          extracted="$(mktemp -d)"
-          trap 'rm -rf "$extracted"' EXIT
+          extracted="$RUNNER_TEMP/oot-abi-simulator"
+          mkdir "$extracted"
           tar -xzf target/ios-simulator/OotAbiSimulator.app.tar.gz -C "$extracted"
           test -x "$extracted/OotAbiSimulator.app/OotAbiSimulator"
           codesign --verify --strict --verbose=2 "$extracted/OotAbiSimulator.app"
+
+      - name: Launch archived app on a fresh discovered simulator
+        run: python3 tools/probes/abi/run_ios_simulator.py "$RUNNER_TEMP/oot-abi-simulator/OotAbiSimulator.app"
 
       - name: Upload verified simulator app archive
         uses: actions/upload-artifact@v4
