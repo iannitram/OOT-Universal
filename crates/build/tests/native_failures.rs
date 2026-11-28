@@ -1,3 +1,6 @@
+#[path = "native_failures/concurrent.rs"]
+mod concurrent;
+
 use oot_build_probe::{build_synthetic, BuildConfig, BuildError};
 use std::fs;
 use std::path::{Path, PathBuf};
