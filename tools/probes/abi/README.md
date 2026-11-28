@@ -27,4 +27,6 @@ clang --target=aarch64-unknown-linux-gnu -ffreestanding -c \
 readelf -h /tmp/oot-abi-probe-x86_64.o /tmp/oot-abi-probe-aarch64.o
 ```
 
-Each Clang command emits a relocatable ELF object. The headers report ELF64 and the corresponding x86-64 or AArch64 machine. It does not link or run ARM64 code. No ARM64 execution was performed by this probe; no iOS/Android application link was attempted. Selected recompiler ABI extraction, chosen-base linking, and owner base/mobile feasibility gates remain pending.
+Each Clang command emits a relocatable ELF object. The headers report ELF64 and the corresponding x86-64 or AArch64 machine. It does not link or run ARM64 code. The hosted link probes exercise the same driver and static library with the mobile SDKs. From the repository root, use `bash tools/probes/abi/link_ios.sh` on a Mac with Xcode and the two Rust iOS targets. Use `bash tools/probes/android/build-android-arm64.sh` on Linux x86-64 with the Android NDK and the Rust Android ARM64 target. Set `ANDROID_NDK_HOME` to the NDK directory. Android defaults to API 24.
+
+The iOS script verifies the Mach-O platform and architecture for device and simulator separately. The Android script checks ELF64, AArch64, and the Android dynamic loader. These are SDK link checks. Device execution, signing, app-local compilation, and selected-base linking remain open.
