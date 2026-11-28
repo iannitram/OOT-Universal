@@ -164,10 +164,11 @@ fn guarded(f: impl FnOnce() -> i32) -> i32 {
 mod tests {
     use super::*;
     #[test]
-    fn layout_is_c_compatible_pointer_sized() {
-        assert_eq!(
-            std::mem::size_of::<Probe>(),
-            2 * std::mem::size_of::<usize>() + SCRATCH_SIZE
-        );
+    fn scratch_ranges_are_bounded_without_overflow() {
+        assert_eq!(checked_range(62, 2), Some((62, 64, 2)));
+        assert_eq!(checked_range(64, 0), Some((64, 64, 0)));
+        assert_eq!(checked_range(65, 0), None);
+        assert_eq!(checked_range(63, 2), None);
+        assert_eq!(checked_range(u64::MAX, 1), None);
     }
 }

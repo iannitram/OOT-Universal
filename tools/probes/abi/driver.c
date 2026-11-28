@@ -12,7 +12,8 @@ static int32_t add_context(void *context, int32_t value) {
 int main(void) {
     OotAbiProbe *probe = 0, *other = 0;
     int32_t delta = 7, result = 0;
-    uint8_t bytes[4] = {0}, replacement[2] = {0xaa, 0xbb};
+    uint8_t bytes[4] = {1, 2, 3, 4};
+    const uint8_t replacement[2] = {0xaa, 0xbb}, other_bytes[2] = {0x12, 0x34};
     assert(oot_abi_probe_create(add_context, &delta, 0) == OOT_ABI_INVALID);
     assert(oot_abi_probe_create(0, &delta, &probe) == OOT_ABI_INVALID && probe == 0);
     assert(oot_abi_probe_create(add_context, &delta, &probe) == OOT_ABI_OK);
@@ -25,6 +26,10 @@ int main(void) {
     assert(bytes[0] == 0xaa && bytes[1] == 0xbb);
     assert(oot_abi_probe_read(probe, 64, 0, 0) == OOT_ABI_OK);
     assert(oot_abi_probe_write(probe, 64, 0, 0) == OOT_ABI_OK);
+    assert(oot_abi_probe_read(0, 0, 0, 0) == OOT_ABI_INVALID);
+    assert(oot_abi_probe_write(0, 0, 0, 0) == OOT_ABI_INVALID);
+    assert(oot_abi_probe_read(probe, 65, 0, 0) == OOT_ABI_INVALID);
+    assert(oot_abi_probe_write(probe, 65, 0, 0) == OOT_ABI_INVALID);
     assert(oot_abi_probe_read(probe, 0, 1, 0) == OOT_ABI_INVALID);
     assert(oot_abi_probe_write(probe, 0, 1, 0) == OOT_ABI_INVALID);
     assert(oot_abi_probe_write(probe, 63, 2, replacement) == OOT_ABI_INVALID);
@@ -36,7 +41,7 @@ int main(void) {
     assert(oot_abi_probe_create(add_context, &delta, &other) == OOT_ABI_OK);
     assert(oot_abi_probe_read(other, 62, 2, bytes) == OOT_ABI_OK);
     assert(bytes[0] == 0 && bytes[1] == 0);
-    assert(oot_abi_probe_write(other, 62, 2, replacement) == OOT_ABI_OK);
+    assert(oot_abi_probe_write(other, 62, 2, other_bytes) == OOT_ABI_OK);
     assert(oot_abi_probe_read(probe, 62, 2, bytes) == OOT_ABI_OK);
     assert(bytes[0] == 0xaa && bytes[1] == 0xbb);
     assert(oot_abi_probe_shutdown(&other) == OOT_ABI_OK && other == 0);
