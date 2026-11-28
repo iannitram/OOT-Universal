@@ -2,6 +2,8 @@ use oot_contracts::{FrameCap, Resolution, Settings, SettingsError, Upscaler};
 use serde::{Deserialize, Serialize};
 use std::{fmt, num::NonZeroU32};
 
+pub mod file;
+
 /// Maximum accepted encoded settings size, in bytes.
 pub const MAX_SETTINGS_BYTES: usize = 4096;
 
