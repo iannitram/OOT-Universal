@@ -7,3 +7,5 @@ description = "Pure supported game identity gate for OOT Universal"
 
 [dependencies]
 oot-contracts = { path = "../contracts" }
+oot-frame-check = { path = "../.." }
+ruzstd = { version = "=0.9.1", features = ["hash"] }

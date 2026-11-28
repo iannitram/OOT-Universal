@@ -156,3 +156,4 @@ mod tests {
 }
 
 pub mod synthetic;
+pub mod zstd_decode;
