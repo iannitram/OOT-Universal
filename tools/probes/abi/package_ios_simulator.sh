@@ -21,7 +21,8 @@ esac
 output_app="${1:-$repo_root/target/ios-simulator/OotAbiSimulator.app}"
 mkdir -p "$(dirname "$output_app")"
 output_parent="$(cd "$(dirname "$output_app")" && pwd)"
-output_app="$output_parent/$(basename "$output_app")"
+output_name="$(basename "$output_app")"
+output_app="$output_parent/$output_name"
 if [[ -e "$output_app" || -L "$output_app" ]]; then
   echo "refusing to replace existing app bundle: $output_app" >&2
   exit 1
@@ -34,7 +35,8 @@ sdk_path="$(xcrun --sdk iphonesimulator --show-sdk-path)"
 rust_target="aarch64-apple-ios-sim"
 clang_target="arm64-apple-ios14.0-simulator"
 app_name="OotAbiSimulator"
-app_dir="$work_dir/$app_name.app"
+bundle_stage="$work_dir/bundle"
+app_dir="$bundle_stage/$app_name.app"
 mkdir -p "$app_dir"
 
 cargo build --locked --manifest-path tools/probes/abi/Cargo.toml \
@@ -83,7 +85,12 @@ if ! grep -q '^Signature=adhoc$' <<< "$signature_details"; then
 fi
 echo "PASS: ad hoc signature verified"
 echo "PASS: executable matches Info.plist CFBundleExecutable"
-mv -n "$app_dir" "$output_app"
+if [[ "$output_name" != "$app_name.app" ]]; then
+  mv "$app_dir" "$bundle_stage/$output_name"
+  app_dir="$bundle_stage/$output_name"
+fi
+# Move into the parent so a concurrently created bundle cannot become the destination directory.
+mv -n "$app_dir" "$output_parent/"
 if [[ -e "$app_dir" ]]; then
   echo "refusing to replace app bundle created during packaging: $output_app" >&2
   exit 1

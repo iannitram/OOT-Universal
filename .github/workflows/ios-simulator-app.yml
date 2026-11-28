@@ -35,9 +35,19 @@ jobs:
       - name: Build, package and verify app
         run: bash tools/probes/abi/package_ios_simulator.sh
 
-      - name: Upload verified simulator app
+      - name: Archive simulator app and verify extraction
+        run: |
+          set -euo pipefail
+          tar -czf target/ios-simulator/OotAbiSimulator.app.tar.gz -C target/ios-simulator OotAbiSimulator.app
+          extracted="$(mktemp -d)"
+          trap 'rm -rf "$extracted"' EXIT
+          tar -xzf target/ios-simulator/OotAbiSimulator.app.tar.gz -C "$extracted"
+          test -x "$extracted/OotAbiSimulator.app/OotAbiSimulator"
+          codesign --verify --strict --verbose=2 "$extracted/OotAbiSimulator.app"
+
+      - name: Upload verified simulator app archive
         uses: actions/upload-artifact@v4
         with:
           name: oot-abi-ios-simulator-arm64
-          path: target/ios-simulator/OotAbiSimulator.app
+          path: target/ios-simulator/OotAbiSimulator.app.tar.gz
           if-no-files-found: error
