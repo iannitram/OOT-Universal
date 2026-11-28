@@ -4,12 +4,14 @@ on:
   pull_request:
     paths:
       - 'tools/probes/abi/**'
+      - 'tools/probes/g2/**'
       - 'rust-toolchain.toml'
       - '.github/workflows/ios-abi-link.yml'
   push:
     branches: [main]
     paths:
       - 'tools/probes/abi/**'
+      - 'tools/probes/g2/**'
       - 'rust-toolchain.toml'
       - '.github/workflows/ios-abi-link.yml'
   workflow_dispatch:
@@ -25,11 +27,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 1
           persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@1.100.0
         with:
           targets: aarch64-apple-ios, aarch64-apple-ios-sim
 
-      - name: Link and inspect iOS ABI probe
-        run: bash tools/probes/abi/link_ios.sh
+      - name: Fetch pinned public emitter imports
+        run: |
+          git fetch --no-tags --depth=1 origin \
+            16cba0845075868d211c63674156fa37401d852e \
+            fa2cc03aa5c2369dea53856d4b11bdb9d0299b3b
+
+      - name: Link and inspect iOS ABI and G2 probes
+        run: bash tools/probes/abi/link_ios.sh --g2

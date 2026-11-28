@@ -1,0 +1,52 @@
+name: Native desktop ABI probe
+
+on:
+  pull_request:
+    paths:
+      - 'tools/probes/abi/**'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/abi-native.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tools/probes/abi/**'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/abi-native.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  abi-native:
+    name: Native ABI driver (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS ARM64
+            os: macos-latest
+            expected_arch: arm64
+          - name: Ubuntu x86-64
+            os: ubuntu-24.04
+            expected_arch: x86_64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@1.100.0
+
+      - name: Assert native runner architecture
+        env:
+          EXPECTED_ARCH: ${{ matrix.expected_arch }}
+        run: |
+          architecture="$(uname -m)"
+          echo "uname -m: ${architecture}"
+          test "${architecture}" = "${EXPECTED_ARCH}"
+
+      - name: Link and run native ABI driver
+        run: bash tools/probes/abi/run_native.sh

@@ -15,6 +15,13 @@ cc -std=c11 -Wall -Wextra -Werror -Itools/probes/abi \
 /tmp/oot-abi-probe
 ```
 
+Run the same native C/Rust ABI driver with the pinned Rust toolchain on macOS
+ARM64 or Linux x86-64 using `bash tools/probes/abi/run_native.sh`. The hosted
+[`abi-native.yml`](../../.github/workflows/abi-native.yml) workflow asserts each
+runner architecture, links with strict C warnings and executes the driver. The
+Linux run supplies the Rust static library's system link dependencies; macOS
+uses its native linker defaults.
+
 Compile the freestanding C translation unit for both architectures (requires Clang with both targets and its compiler-provided integer headers):
 
 ```sh

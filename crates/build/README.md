@@ -26,7 +26,7 @@ The job also runs a native regression test that requires a compiler. To run just
 cargo test --locked -p oot-build-probe --test native_failures -- --ignored
 ```
 
-The test checks that a compiler exit and cancellation after compilation each preserve the prior executable and remove staging.
+The tests check that compiler exit, a staged executable failure, incorrect output, and cancellation after compilation each preserve the prior executable and remove staging. They also check that simultaneous successful builds publish two separate runnable generations to one output root.
 
 No production game-build CLI is exposed.
 

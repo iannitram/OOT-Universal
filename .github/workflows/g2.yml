@@ -1,4 +1,4 @@
-name: G2 ARM64 translation probe
+name: G2 desktop translation probe
 on:
   pull_request:
     paths:
@@ -42,3 +42,42 @@ jobs:
           clang++ --version
           python3 --version
           python3 tools/probes/g2/probe.py
+
+  g2-windows-x64:
+    name: G2 synthetic probe (Windows x86-64)
+    # Keep the runner's Clang compatible with the installed C++ standard library.
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Confirm x86-64 runner
+        shell: pwsh
+        run: |
+          $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+          Write-Output "OS architecture: $architecture"
+          if ($architecture -ne "X64") { throw "Expected x86-64 Windows runner, found $architecture" }
+
+      - name: Fetch pinned public emitter imports
+        shell: pwsh
+        run: |
+          git fetch --no-tags --depth=1 origin `
+            16cba0845075868d211c63674156fa37401d852e `
+            fa2cc03aa5c2369dea53856d4b11bdb9d0299b3b
+
+      - name: Verify hosted Clang and run native probe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $command = Get-Command clang.exe -ErrorAction SilentlyContinue
+          $clang = if ($command) { $command.Source } else { Join-Path $env:ProgramFiles 'LLVM/bin/clang.exe' }
+          $clang = (Resolve-Path -LiteralPath $clang).Path
+          $clangxx = Join-Path (Split-Path -Parent $clang) 'clang++.exe'
+          & $clang --version
+          & $clangxx --version
+          python --version
+          python tools/probes/g2/probe.py --clang $clang --clangxx $clangxx
