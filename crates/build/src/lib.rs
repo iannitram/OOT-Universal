@@ -107,10 +107,10 @@ impl From<io::Error> for VerifyError {
 
 /// Verify a published generation using its strict, bounded metadata record.
 ///
-/// The verifier accepts only format version 1 and the bundled synthetic fixture
-/// supported fixture identifiers. It expects a trusted directory without
-/// concurrent changes and regular manifest and executable files. Metadata is
-/// capped at 256 bytes and executable hashing at 64 MiB.
+/// The verifier accepts format version 1 and both bundled fixture identifiers.
+/// It expects regular manifest and executable files in a trusted directory
+/// without concurrent changes. The verifier caps metadata at 256 bytes and
+/// executable hashing at 64 MiB.
 pub fn verify_generation(generation: &Path) -> Result<ArtifactRecord, VerifyError> {
     let manifest = open_regular_file(&generation.join(MANIFEST_NAME))?;
     let metadata = manifest.metadata()?;

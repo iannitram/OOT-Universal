@@ -98,6 +98,66 @@ fn copy_generation(source: &Path, destination: &Path) {
     .expect("copy artifact manifest");
 }
 
+fn compile_probe_wrapper(compiler: &Path, temp: &Path) -> PathBuf {
+    // The stand-in runs inside the staging directory and copies our precompiled
+    // fixture from two levels up. If a staged payload exists, corrupt its first byte.
+    let wrapper_source = temp.join("wrapper.c");
+    fs::write(
+        &wrapper_source,
+        r#"
+#define _CRT_SECURE_NO_WARNINGS
+#include <errno.h>
+#include <stdio.h>
+#ifndef _WIN32
+#include <sys/stat.h>
+#endif
+int main(int argc, char **argv) {
+    if (argc < 2) return 1;
+    FILE *asset = fopen("fixture/payload.bin", "r+b");
+    if (asset) {
+        if (fputc(0, asset) == EOF || fclose(asset)) return 6;
+    } else if (errno != ENOENT) {
+        return 7;
+    }
+    FILE *in = fopen("../../probe-fixture", "rb");
+    FILE *out = fopen(argv[argc - 1], "wb");
+    if (!in || !out) return 2;
+    int c;
+    while ((c = fgetc(in)) != EOF) if (fputc(c, out) == EOF) return 3;
+    if (ferror(in) || fclose(in) || fclose(out)) return 4;
+#ifndef _WIN32
+    if (chmod(argv[argc - 1], 0700)) return 5;
+#endif
+    return 0;
+}
+
+"#,
+    )
+    .expect("write wrapper source");
+    let wrapper = temp.join(if cfg!(windows) {
+        "wrapper.exe"
+    } else {
+        "wrapper"
+    });
+    compile_native_fixture(compiler, &wrapper_source, &wrapper);
+    wrapper
+}
+
+fn compile_native_fixture(compiler: &Path, source: &Path, output: &Path) {
+    let result = Command::new(compiler)
+        .args(["-std=c11", "-Wall", "-Wextra", "-Werror", "-O2"])
+        .arg(source)
+        .arg("-o")
+        .arg(output)
+        .output()
+        .expect("run native compiler");
+    assert!(
+        result.status.success(),
+        "compile failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
 #[test]
 #[ignore = "requires OOT_BUILD_TEST_COMPILER to name an absolute native compiler executable"]
 fn native_success_compiler_failure_and_post_compile_cancellation() {
@@ -280,19 +340,8 @@ fn native_snapshot_build_checks_bytes_eof_and_preserves_prior_generation_on_fail
     fs::write(fixture_dir.join("payload.bin"), bad_payload).unwrap();
     let source = temp.0.join("snapshot.c");
     fs::write(&source, include_str!("../fixtures/snapshot.c")).unwrap();
-    let executable = temp.0.join(PROBE_NAME);
-    let compile = Command::new(&compiler)
-        .args(["-std=c11", "-Wall", "-Wextra", "-Werror", "-O2"])
-        .arg(&source)
-        .arg("-o")
-        .arg(&executable)
-        .output()
-        .expect("compile snapshot verifier fixture");
-    assert!(
-        compile.status.success(),
-        "{}",
-        String::from_utf8_lossy(&compile.stderr)
-    );
+    let executable = temp.0.join("probe-fixture");
+    compile_native_fixture(&compiler, &source, &executable);
     let rejected = Command::new(&executable)
         .current_dir(&temp.0)
         .output()
@@ -307,75 +356,9 @@ fn native_snapshot_build_checks_bytes_eof_and_preserves_prior_generation_on_fail
         }
     );
 
-    // The compiler stand-in damages one byte after staging but installs the
-    // real verifier executable. The build must fail its fixture readback.
-    let staged_verifier = temp.0.join(if cfg!(windows) {
-        "probe-fixture.exe"
-    } else {
-        "probe-fixture"
-    });
-    let compile_verifier = Command::new(&compiler)
-        .args(["-std=c11", "-Wall", "-Wextra", "-Werror", "-O2"])
-        .arg(&source)
-        .arg("-o")
-        .arg(&staged_verifier)
-        .output()
-        .expect("compile verifier for corrupt-stage test");
-    assert!(
-        compile_verifier.status.success(),
-        "{}",
-        String::from_utf8_lossy(&compile_verifier.stderr)
-    );
-    let wrapper_source = temp.0.join("corrupting-compiler.c");
-    fs::write(
-        &wrapper_source,
-        r#"
-#define _CRT_SECURE_NO_WARNINGS
-#include <stdio.h>
-#ifndef _WIN32
-#include <sys/stat.h>
-#endif
-int main(int argc, char **argv) {
-    static const unsigned char damaged[] = {0x00, 0x4f, 0x54, 0x00, 0x01, 0x7f, 0x80, 0xff};
-    if (argc < 2) return 1;
-    FILE *asset = fopen("fixture/payload.bin", "wb");
-    if (!asset) return 2;
-    if (fwrite(damaged, 1, sizeof(damaged), asset) != sizeof(damaged) || fclose(asset)) return 3;
-#ifdef _WIN32
-    FILE *in = fopen("../../probe-fixture.exe", "rb");
-#else
-    FILE *in = fopen("../../probe-fixture", "rb");
-#endif
-    FILE *out = fopen(argv[argc - 1], "wb");
-    if (!in || !out) return 4;
-    int c;
-    while ((c = fgetc(in)) != EOF) if (fputc(c, out) == EOF) return 5;
-    if (ferror(in) || fclose(in) || fclose(out)) return 6;
-#ifndef _WIN32
-    if (chmod(argv[argc - 1], 0700)) return 7;
-#endif
-    return 0;
-}
-"#,
-    )
-    .expect("write corrupting compiler source");
-    let wrapper = temp.0.join(if cfg!(windows) {
-        "corrupting-compiler.exe"
-    } else {
-        "corrupting-compiler"
-    });
-    let compile_wrapper = Command::new(&compiler)
-        .args(["-std=c11", "-Wall", "-Wextra", "-Werror", "-O2"])
-        .arg(&wrapper_source)
-        .arg("-o")
-        .arg(&wrapper)
-        .output()
-        .expect("compile corrupting compiler");
-    assert!(
-        compile_wrapper.status.success(),
-        "{}",
-        String::from_utf8_lossy(&compile_wrapper.stderr)
-    );
+    // The compiler stand-in damages one byte after staging and installs the
+    // same compiled verifier. The build must fail its fixture readback.
+    let wrapper = compile_probe_wrapper(&compiler, &temp.0);
     let corrupt_config = BuildConfig {
         compiler: wrapper,
         output_root: output_root.clone(),
@@ -513,54 +496,7 @@ fn native_probe_failures_preserve_previous_generation() {
     };
     let previous = build_synthetic(&config, || false).expect("establish previous generation");
 
-    // The stand-in runs inside the staging directory and copies our precompiled
-    // fixture from two levels up to the output filename.
-    let wrapper_source = temp.0.join("wrapper.c");
-    fs::write(
-        &wrapper_source,
-        r#"
-#define _CRT_SECURE_NO_WARNINGS
-#include <stdio.h>
-#ifndef _WIN32
-#include <sys/stat.h>
-#endif
-int main(int argc, char **argv) {
-    if (argc < 2) return 1;
-    FILE *in = fopen("../../probe-fixture", "rb");
-    FILE *out = fopen(argv[argc - 1], "wb");
-    if (!in || !out) return 2;
-    int c;
-    while ((c = fgetc(in)) != EOF) if (fputc(c, out) == EOF) return 3;
-    if (ferror(in) || fclose(in) || fclose(out)) return 4;
-#ifndef _WIN32
-    if (chmod(argv[argc - 1], 0700)) return 5;
-#endif
-    return 0;
-}
-
-"#,
-    )
-    .expect("write wrapper source");
-    let build = |source: &Path, output: &Path| {
-        let result = Command::new(&compiler)
-            .args(["-std=c11", "-Wall", "-Wextra", "-Werror", "-O2"])
-            .arg(source)
-            .arg("-o")
-            .arg(output)
-            .output()
-            .expect("run native compiler");
-        assert!(
-            result.status.success(),
-            "compile failed: {}",
-            String::from_utf8_lossy(&result.stderr)
-        );
-    };
-    let wrapper = temp.0.join(if cfg!(windows) {
-        "wrapper.exe"
-    } else {
-        "wrapper"
-    });
-    build(&wrapper_source, &wrapper);
+    let wrapper = compile_probe_wrapper(&compiler, &temp.0);
     let fixture_source = temp.0.join("bad_fixture.c");
     let fixture = temp.0.join("probe-fixture");
     let bad_config = BuildConfig {
@@ -573,7 +509,7 @@ int main(int argc, char **argv) {
         "#include <stdio.h>\nint main(void) { fputs(\"probe failure\", stderr); return 23; }\n",
     )
     .unwrap();
-    build(&fixture_source, &fixture);
+    compile_native_fixture(&compiler, &fixture_source, &fixture);
     match build_synthetic(&bad_config, || false) {
         Err(BuildError::ProbeFailed { status, stderr }) => {
             assert_eq!(status, Some(23));
@@ -588,7 +524,7 @@ int main(int argc, char **argv) {
         "#include <stdio.h>\nint main(void) { fputs(\"wrong bytes\", stdout); return 0; }\n",
     )
     .unwrap();
-    build(&fixture_source, &fixture);
+    compile_native_fixture(&compiler, &fixture_source, &fixture);
     match build_synthetic(&bad_config, || false) {
         Err(BuildError::UnexpectedOutput(output)) => assert_eq!(output, "wrong bytes"),
         other => panic!("expected unexpected output, got {other:?}"),
@@ -619,7 +555,7 @@ int main(void) {
 "#,
     )
     .expect("write running fixture");
-    build(&fixture_source, &fixture);
+    compile_native_fixture(&compiler, &fixture_source, &fixture);
     let started = std::time::Instant::now();
     let mut observed_start = false;
     let cancelled = build_synthetic(&bad_config, || {

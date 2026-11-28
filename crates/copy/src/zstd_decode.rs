@@ -30,9 +30,9 @@ fn invalid(message: &'static str) -> io::Error {
 
 /// Decode one complete standard frame under caller-supplied resource limits.
 ///
-/// Dictionary frames are rejected. If the frame declares its content size,
-/// that size is checked against the output cap before decompression and must
-/// match the number of bytes actually produced. Frames with checksums are
+/// Frames carrying a dictionary ID field are rejected. A declared content size
+/// is checked against the output cap before decompression and must match the
+/// number of bytes actually produced. Frames with checksums are
 /// checked against ruzstd's XXH64 digest truncated to the RFC-required low 32
 /// bits. Trailing bytes and concatenated frames are rejected by `check_frame`.
 pub fn decode_frame(input: &[u8], limits: DecodeLimits) -> io::Result<Vec<u8>> {
@@ -53,22 +53,18 @@ pub fn decode_frame(input: &[u8], limits: DecodeLimits) -> io::Result<Vec<u8>> {
 
     let mut decoder =
         ruzstd::decoding::StreamingDecoder::new_with_max_window_size(input, limits.window_bytes)
-            .map_err(|e| invalid_box("invalid Zstandard frame", e))?;
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
 
-    // Read at most one byte past the limit, so the result vector cannot grow
-    // beyond the configured bound even for frames without a declared size.
-    let mut output = Vec::with_capacity(
-        info.content_size
-            .unwrap_or(0)
-            .min(limits.output_bytes as u64) as usize,
-    );
+    // Collect at most one byte past the limit, without retaining it in the
+    // result. The decoder processes whole blocks in its scratch buffer.
+    let mut output = Vec::new();
     let mut chunk = [0u8; 8192];
     loop {
         let allowed = limits.output_bytes.saturating_sub(output.len());
         let request = chunk.len().min(allowed.saturating_add(1));
         let read = decoder
             .read(&mut chunk[..request])
-            .map_err(|e| invalid_box("failed to decode Zstandard frame", e))?;
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
         if read == 0 {
             break;
         }
@@ -97,10 +93,6 @@ pub fn decode_frame(input: &[u8], limits: DecodeLimits) -> io::Result<Vec<u8>> {
     Ok(output)
 }
 
-fn invalid_box(message: &'static str, _cause: impl std::fmt::Display) -> io::Error {
-    invalid(message)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -119,14 +111,22 @@ mod tests {
     }
 
     #[test]
-    fn decodes_real_compressed_fixture_and_checksum() {
-        let original = b"authored synthetic frame with repeated repeated repeated data";
-        let frame = compressed(original);
-        assert_eq!(decode_frame(&frame, limits()).unwrap(), original);
-        assert!(
-            frame[4] & 4 != 0,
-            "hash feature should emit checksummed frames"
-        );
+    fn decodes_compressed_block_and_bounds_output_without_declared_size() {
+        let original = b"authored synthetic frame with repeating data\n".repeat(64);
+        let frame = compressed(&original);
+        let info = oot_frame_check::check_frame(&mut Cursor::new(&frame)).unwrap();
+        assert_eq!(info.content_size, None);
+        assert!(info.has_checksum);
+        // The descriptor supplies only a window byte, so the block starts at offset 6.
+        assert_eq!((frame[6] >> 1) & 3, 2, "expected a compressed block");
+        assert!(frame.len() < original.len());
+
+        let mut bounded = limits();
+        bounded.output_bytes = original.len();
+        assert_eq!(decode_frame(&frame, bounded).unwrap(), original);
+        bounded.output_bytes -= 1;
+        let error = decode_frame(&frame, bounded).unwrap_err();
+        assert_eq!(error.to_string(), "decoded output exceeds configured limit");
     }
 
     #[test]
@@ -139,10 +139,15 @@ mod tests {
     }
 
     #[test]
-    fn rejects_incorrect_checksum() {
-        let mut frame = compressed(b"checksum fixture");
+    fn verifies_standard_checksum() {
+        // XXH64("abc", 0) is 0x44bc2cf5ad770999. The frame stores its low 32 bits.
+        let mut frame = [
+            0x28, 0xb5, 0x2f, 0xfd, 0x24, 3, 0x19, 0, 0, b'a', b'b', b'c', 0x99, 0x09, 0x77, 0xad,
+        ];
+        assert_eq!(decode_frame(&frame, limits()).unwrap(), b"abc");
         *frame.last_mut().unwrap() ^= 1;
-        assert!(decode_frame(&frame, limits()).is_err());
+        let error = decode_frame(&frame, limits()).unwrap_err();
+        assert_eq!(error.to_string(), "Zstandard content checksum mismatch");
     }
 
     #[test]
@@ -153,21 +158,32 @@ mod tests {
         ];
         let mut bounded = limits();
         bounded.window_bytes = 8 * 1024;
-        assert!(decode_frame(&frame, bounded).is_err());
+        let error = decode_frame(&frame, bounded).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error
+            .get_ref()
+            .unwrap()
+            .is::<ruzstd::decoding::errors::FrameDecoderError>());
     }
 
     #[test]
-    fn rejects_oversized_output_and_declared_size_mismatch() {
-        let frame = compressed(b"0123456789abcdef");
-        let mut bounded = limits();
-        bounded.output_bytes = 8;
-        assert!(decode_frame(&frame, bounded).is_err());
-
+    fn checks_declared_output_size_before_and_after_decoding() {
         // Same valid raw block but header declares four bytes for three output bytes.
         let mismatch = [
             0x28, 0xb5, 0x2f, 0xfd, 0x20, 4, 0x19, 0, 0, b'a', b'b', b'c',
         ];
-        assert!(decode_frame(&mismatch, limits()).is_err());
+        let mut bounded = limits();
+        bounded.output_bytes = 3;
+        let error = decode_frame(&mismatch, bounded).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "declared content size exceeds configured limit"
+        );
+        let error = decode_frame(&mismatch, limits()).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "decoded size does not match declared content size"
+        );
     }
 
     #[test]
@@ -178,12 +194,32 @@ mod tests {
     }
 
     #[test]
+    fn rejects_malformed_compressed_payload_after_structural_preflight() {
+        // A final compressed block containing only an empty literals header.
+        let frame = [0x28, 0xb5, 0x2f, 0xfd, 0, 0, 0x0d, 0, 0, 0];
+        assert!(oot_frame_check::check_frame(&mut Cursor::new(frame)).is_ok());
+        let error = decode_frame(&frame, limits()).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.get_ref().is_some());
+    }
+
+    #[test]
     fn rejects_dictionaries_and_trailing_frames() {
-        let dict_frame = [0x28, 0xb5, 0x2f, 0xfd, 0x21, 1, 0, 0, 0, 0x19, 0, 0, b'a'];
-        assert!(decode_frame(&dict_frame, limits()).is_err());
+        // One-byte dictionary ID 1, content-size 3, one final raw block.
+        let dict_frame = [
+            0x28, 0xb5, 0x2f, 0xfd, 0x21, 1, 3, 0x19, 0, 0, b'a', b'b', b'c',
+        ];
+        let error = decode_frame(&dict_frame, limits()).unwrap_err();
+        assert_eq!(error.to_string(), "dictionary frames are not supported");
 
         let mut concatenated = compressed(b"one");
+        let truncated = &concatenated[..concatenated.len() - 1];
+        assert_eq!(
+            decode_frame(truncated, limits()).unwrap_err().kind(),
+            io::ErrorKind::UnexpectedEof
+        );
         concatenated.extend_from_slice(&compressed(b"two"));
-        assert!(decode_frame(&concatenated, limits()).is_err());
+        let error = decode_frame(&concatenated, limits()).unwrap_err();
+        assert_eq!(error.to_string(), "trailing bytes after frame");
     }
 }
