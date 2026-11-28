@@ -13,6 +13,18 @@ int main(void) {
     c.x[0] = UINT64_MAX;
     f_00010000(&c);
     if (c.x[0] != 6) return 3;
-    puts("function branch and returns passed");
+
+    c = (Ctx){0};
+    c.x[0] = 35;
+    f_00020010(&c);
+    if (c.x[0] != 40) return 4;
+
+    c = (Ctx){0};
+    c.x[0] = 35;
+    f_00020000(&c);
+    if (c.x[0] != 40) return 5;
+    if (c.x[30] != 0x20008) return 6;
+
+    puts("function branch, direct call, callee result and guest link register passed");
     return 0;
 }
