@@ -1,4 +1,4 @@
-use oot_contracts::{FrameCap, Resolution, Settings, Upscaler};
+use oot_contracts::{FrameCap, Resolution, Settings, SettingsError, Upscaler};
 use serde::{Deserialize, Serialize};
 use std::{fmt, num::NonZeroU32};
 
@@ -10,6 +10,9 @@ pub const MAX_SETTINGS_BYTES: usize = 4096;
 pub enum CodecError {
     TooLarge { actual: usize, maximum: usize },
     Json(serde_json::Error),
+    Settings(SettingsError),
+    ZeroResolutionDimension,
+    UnsupportedFrameCap(u32),
 }
 
 impl fmt::Display for CodecError {
@@ -19,6 +22,11 @@ impl fmt::Display for CodecError {
                 write!(f, "settings JSON is {actual} bytes; maximum is {maximum}")
             }
             Self::Json(error) => write!(f, "invalid settings JSON: {error}"),
+            Self::Settings(error) => error.fmt(f),
+            Self::ZeroResolutionDimension => {
+                f.write_str("explicit resolution requires nonzero dimensions")
+            }
+            Self::UnsupportedFrameCap(cap) => write!(f, "unsupported settings frame cap: {cap}"),
         }
     }
 }
@@ -26,8 +34,9 @@ impl fmt::Display for CodecError {
 impl std::error::Error for CodecError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::TooLarge { .. } => None,
             Self::Json(error) => Some(error),
+            Self::Settings(error) => Some(error),
+            _ => None,
         }
     }
 }
@@ -103,16 +112,14 @@ pub fn decode(bytes: &[u8]) -> Result<Settings, CodecError> {
     let resolution = match document.resolution {
         ResolutionDocument::Native => Resolution::Native,
         ResolutionDocument::Explicit { width, height } => Resolution::Explicit {
-            width: NonZeroU32::new(width)
-                .ok_or_else(|| invalid("resolution.width must be nonzero"))?,
-            height: NonZeroU32::new(height)
-                .ok_or_else(|| invalid("resolution.height must be nonzero"))?,
+            width: NonZeroU32::new(width).ok_or(CodecError::ZeroResolutionDimension)?,
+            height: NonZeroU32::new(height).ok_or(CodecError::ZeroResolutionDimension)?,
         },
     };
     let frame_cap = match document.frame_cap {
         30 => FrameCap::Fps30,
         60 => FrameCap::Fps60,
-        _ => return Err(invalid("frame_cap must be 30 or 60")),
+        cap => return Err(CodecError::UnsupportedFrameCap(cap)),
     };
     let upscaler = match document.upscaler {
         UpscalerDocument::Off => Upscaler::Off,
@@ -125,11 +132,7 @@ pub fn decode(bytes: &[u8]) -> Result<Settings, CodecError> {
         upscaler,
         document.extras_enabled,
     )
-    .map_err(|error| invalid(error.to_string()))
-}
-
-fn invalid(message: impl fmt::Display) -> CodecError {
-    CodecError::Json(<serde_json::Error as serde::de::Error>::custom(message))
+    .map_err(CodecError::Settings)
 }
 
 #[cfg(test)]
@@ -173,6 +176,20 @@ mod tests {
                 assert_eq!(decode(&encode(&value).unwrap()).unwrap(), value);
             }
         }
+    }
+
+    #[test]
+    fn distinguishes_version_and_size_errors() {
+        let unsupported = br#"{"schema_version":2,"resolution":{"kind":"native"},"frame_cap":60,"upscaler":"off","extras_enabled":false}"#;
+        assert!(matches!(
+            decode(unsupported),
+            Err(CodecError::Settings(
+                SettingsError::UnsupportedSchemaVersion(2)
+            ))
+        ));
+        let mut maximum = encode(&Settings::default()).unwrap();
+        maximum.resize(MAX_SETTINGS_BYTES, b' ');
+        assert_eq!(decode(&maximum).unwrap(), Settings::default());
     }
 
     #[test]
