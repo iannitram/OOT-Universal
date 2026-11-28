@@ -75,11 +75,15 @@ int main(void) {
         [commandBuffer commit];
         [commandBuffer waitUntilCompleted];
 
-        if (commandBuffer.status == MTLCommandBufferStatusError) {
+        if (commandBuffer.status != MTLCommandBufferStatusCompleted) {
             return failWithNSError("Metal compute dispatch", commandBuffer.error);
         }
 
         const uint32_t *readback = (const uint32_t *)buffer.contents;
+        if (readback == NULL) {
+            fprintf(stderr, "Shared Metal buffer has no host address\n");
+            return EXIT_FAILURE;
+        }
         for (uint32_t i = 0; i < kElementCount; ++i) {
             const uint32_t expected = i + 0x13579bdfu;
             if (readback[i] != expected) {

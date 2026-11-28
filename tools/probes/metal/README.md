@@ -12,10 +12,9 @@ Run on macOS with Xcode command-line tools:
 bash tools/probes/metal/run.sh
 ```
 
-The executable returns 77 and prints `NO_METAL_DEVICE` when macOS reports no
-Metal device. The script preserves that distinct result in the log and GitHub
-step summary, while allowing CI to complete with the probe clearly reported as
-not run. All other nonzero results fail the script. A successful run reports
+When macOS reports no Metal device, the probe prints `NO_METAL_DEVICE` and
+exits 77 locally. GitHub Actions records the capability result in a notice and
+step summary and completes the compile-and-link check. All other nonzero results fail the script. A successful run reports
 the device and verified values `0x13579bdf` through `0x13579be2`.
 
 The hosted workflow requires `uname -m` to report `arm64`, proving that the
