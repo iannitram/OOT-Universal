@@ -12,6 +12,7 @@ from pathlib import Path
 BUNDLE_ID = "org.ootuniversal.abi-simulator"
 RESULT_NAME = "oot-abi-driver-result.txt"
 SIMCTL = ["xcrun", "simctl"]
+DISCOVERY_TIMEOUT = 240
 
 
 class SimulatorUnavailable(RuntimeError):
@@ -24,6 +25,10 @@ def run(args: list[str], *, timeout: int = 60) -> str:
     try:
         result = subprocess.run(command, check=False, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired as error:
+        if error.stdout:
+            print(error.stdout.decode(errors="replace").rstrip(), flush=True)
+        if error.stderr:
+            print(error.stderr.decode(errors="replace").rstrip(), file=sys.stderr, flush=True)
         raise RuntimeError(f"command timed out after {timeout}s: {' '.join(command)}") from error
     if result.stdout:
         print(result.stdout.rstrip(), flush=True)
@@ -35,7 +40,8 @@ def run(args: list[str], *, timeout: int = 60) -> str:
 
 
 def discover_pair() -> tuple[str, str, str]:
-    runtimes_doc = json.loads(run(["list", "runtimes", "--json"]))
+    # The first simctl request may wait for CoreSimulator setup on a fresh runner.
+    runtimes_doc = json.loads(run(["list", "runtimes", "--json"], timeout=DISCOVERY_TIMEOUT))
     runtimes = [runtime for runtime in runtimes_doc.get("runtimes", [])
                 if runtime.get("isAvailable") is True
                 and runtime.get("identifier", "").startswith("com.apple.CoreSimulator.SimRuntime.iOS-")
@@ -56,7 +62,7 @@ def discover_pair() -> tuple[str, str, str]:
         if devices is None:
             # Older simctl output can establish compatibility from existing devices.
             if listed_device_runtimes is None:
-                devices_doc = json.loads(run(["list", "devices", "available", "--json"]))
+                devices_doc = json.loads(run(["list", "devices", "available", "--json"], timeout=DISCOVERY_TIMEOUT))
                 listed_device_runtimes = devices_doc.get("devices", {})
             devices = [
                 {"identifier": device.get("deviceTypeIdentifier", ""), "name": device.get("name", "")}
@@ -86,8 +92,8 @@ def main() -> None:
     owned_udid = str(uuid.UUID(created)).upper()
     try:
         run(["boot", owned_udid], timeout=60)
-        run(["bootstatus", owned_udid, "-b"], timeout=180)
-        run(["install", owned_udid, str(app)], timeout=120)
+        run(["bootstatus", owned_udid, "-b"], timeout=300)
+        run(["install", owned_udid, str(app)], timeout=180)
         container_output = run(["get_app_container", owned_udid, BUNDLE_ID, "data"], timeout=60).strip()
         if not container_output:
             raise RuntimeError("simctl returned an empty app data container path")
