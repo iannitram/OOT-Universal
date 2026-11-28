@@ -35,6 +35,9 @@ jobs:
       - name: Build, package and verify app
         run: bash tools/probes/abi/package_ios_simulator.sh
 
+      - name: Launch app on a fresh discovered simulator
+        run: python3 tools/probes/abi/run_ios_simulator.py target/ios-simulator/OotAbiSimulator.app
+
       - name: Archive simulator app and verify extraction
         run: |
           set -euo pipefail

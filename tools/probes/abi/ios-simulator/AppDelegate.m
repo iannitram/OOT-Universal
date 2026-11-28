@@ -13,6 +13,13 @@ extern int oot_abi_driver_main(void);
     (void)launchOptions;
 
     int result = oot_abi_driver_main();
+    NSString *documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+    NSString *resultPath = [documents stringByAppendingPathComponent:@"oot-abi-driver-result.txt"];
+    NSString *resultContents = [NSString stringWithFormat:@"OOT_ABI_DRIVER_RESULT=%d\n", result];
+    NSError *writeError = nil;
+    if (![resultContents writeToFile:resultPath atomically:YES encoding:NSUTF8StringEncoding error:&writeError]) {
+        NSLog(@"Could not publish ABI driver result: %@", writeError);
+    }
     NSString *message = result == 0 ? @"C/Rust ABI checks passed"
                                     : [NSString stringWithFormat:@"C/Rust ABI checks failed (%d)", result];
     NSLog(@"%@", message);
