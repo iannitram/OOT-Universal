@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -11,10 +12,13 @@ from pathlib import Path
 BUNDLE_ID = "org.ootuniversal.abi-simulator"
 RESULT_NAME = "oot-abi-driver-result.txt"
 SIMCTL = ["xcrun", "simctl"]
-owned_udid: str | None = None
 
 
-def run(args: list[str], *, timeout: int = 60, check: bool = True) -> str:
+class SimulatorUnavailable(RuntimeError):
+    """Discovery found no runtime and device type suitable for the probe."""
+
+
+def run(args: list[str], *, timeout: int = 60) -> str:
     command = SIMCTL + args
     print("$ " + " ".join(command), flush=True)
     try:
@@ -25,27 +29,19 @@ def run(args: list[str], *, timeout: int = 60, check: bool = True) -> str:
         print(result.stdout.rstrip(), flush=True)
     if result.stderr:
         print(result.stderr.rstrip(), file=sys.stderr, flush=True)
-    if check and result.returncode:
+    if result.returncode:
         raise RuntimeError(f"command exited {result.returncode}: {' '.join(command)}")
     return result.stdout
 
 
 def discover_pair() -> tuple[str, str, str]:
     runtimes_doc = json.loads(run(["list", "runtimes", "--json"]))
-    devices_doc = json.loads(run(["list", "devices", "available", "--json"]))
-    types_doc = json.loads(run(["list", "devicetypes", "--json"]))
     runtimes = [runtime for runtime in runtimes_doc.get("runtimes", [])
                 if runtime.get("isAvailable") is True
-                and runtime.get("identifier", "").startswith("com.apple.CoreSimulator.SimRuntime.iOS-")]
+                and runtime.get("identifier", "").startswith("com.apple.CoreSimulator.SimRuntime.iOS-")
+                and "arm64" in runtime.get("supportedArchitectures", ["arm64"])]
     if not runtimes:
-        observed = ", ".join(f"{r.get('identifier', '?')} (available={r.get('isAvailable')})"
-                              for r in runtimes_doc.get("runtimes", [])) or "none"
-        raise RuntimeError(f"No available iOS Simulator runtime is installed; discovered: {observed}")
-    device_types = {device.get("identifier"): device for device in types_doc.get("devicetypes", [])
-                    if device.get("productFamily") == "iPhone"
-                    or device.get("name", "").startswith("iPhone")}
-    if not device_types:
-        raise RuntimeError("Available iOS runtimes were found, but simctl reported no compatible iPhone device types")
+        raise SimulatorUnavailable("simctl listed no available ARM64 iOS runtime.")
 
     # Prefer the newest available runtime, then the alphabetically first iPhone type.
     def version_key(item: dict) -> tuple[tuple[int, ...], str]:
@@ -53,26 +49,29 @@ def discover_pair() -> tuple[str, str, str]:
         return parts, item.get("identifier", "")
 
     runtimes.sort(key=version_key, reverse=True)
-    listed_device_runtimes = devices_doc.get("devices", {})
-    # Reuse the type/runtime pairing that simctl itself lists as available, then create
-    # a separate simulator of that exact type so this run owns its entire lifecycle.
+    listed_device_runtimes = None
     for runtime in runtimes:
-        listed = listed_device_runtimes.get(runtime["identifier"], [])
-        candidates = []
-        for device in listed:
-            type_id = device.get("deviceTypeIdentifier")
-            device_type = device_types.get(type_id)
-            if device_type and device.get("isAvailable", True) is True:
-                candidates.append(device_type)
-        candidates.sort(key=lambda item: (item.get("name", ""), item.get("identifier", "")))
+        runtime_id = runtime["identifier"]
+        devices = runtime.get("supportedDeviceTypes")
+        if devices is None:
+            # Older simctl output can establish compatibility from existing devices.
+            if listed_device_runtimes is None:
+                devices_doc = json.loads(run(["list", "devices", "available", "--json"]))
+                listed_device_runtimes = devices_doc.get("devices", {})
+            devices = [
+                {"identifier": device.get("deviceTypeIdentifier", ""), "name": device.get("name", "")}
+                for device in listed_device_runtimes.get(runtime_id, [])
+                if device.get("isAvailable", True) is True
+            ]
+        candidates = [device for device in devices
+                      if device.get("identifier", "").startswith("com.apple.CoreSimulator.SimDeviceType.iPhone-")]
         if candidates:
-            device_type = candidates[0]
-            return runtime["identifier"], device_type["identifier"], device_type.get("name", device_type["identifier"])
-    raise RuntimeError("Available iOS runtimes were found, but none has an available compatible iPhone type")
+            device_type = min(candidates, key=lambda item: (item.get("name", ""), item["identifier"]))
+            return runtime_id, device_type["identifier"], device_type.get("name", device_type["identifier"])
+    raise SimulatorUnavailable("simctl listed no compatible iPhone type for its available ARM64 iOS runtimes.")
 
 
 def main() -> None:
-    global owned_udid
     if len(sys.argv) != 2:
         raise RuntimeError("usage: run_ios_simulator.py APP_PATH")
     app = Path(sys.argv[1]).resolve(strict=True)
@@ -81,25 +80,24 @@ def main() -> None:
 
     runtime_id, device_type_id, device_name = discover_pair()
     print(f"Selected available runtime {runtime_id} and iPhone type {device_name} ({device_type_id})")
-    created = run(["create", "OOT ABI CI fresh device", device_type_id, runtime_id], timeout=60).strip()
+    created = run(["create", "OOT ABI CI fresh device", device_type_id, runtime_id]).strip()
     if not re.fullmatch(r"[0-9A-Fa-f]{8}-(?:[0-9A-Fa-f]{4}-){3}[0-9A-Fa-f]{12}", created):
         raise RuntimeError(f"simctl create did not return a simulator UDID: {created!r}")
-    try:
-        owned_udid = str(uuid.UUID(created))
-    except ValueError as error:
-        raise RuntimeError(f"simctl create returned an invalid simulator UUID: {created!r}") from error
+    owned_udid = str(uuid.UUID(created)).upper()
     try:
         run(["boot", owned_udid], timeout=60)
         run(["bootstatus", owned_udid, "-b"], timeout=180)
         run(["install", owned_udid, str(app)], timeout=120)
-        run(["launch", owned_udid, BUNDLE_ID], timeout=60)
         container_output = run(["get_app_container", owned_udid, BUNDLE_ID, "data"], timeout=60).strip()
         if not container_output:
             raise RuntimeError("simctl returned an empty app data container path")
-        container = Path(container_output.splitlines()[-1])
+        container = Path(container_output)
         if not container.is_absolute() or not container.is_dir():
             raise RuntimeError(f"simctl returned an invalid or missing app data container: {container_output!r}")
         result_file = container / "Documents" / RESULT_NAME
+        if result_file.exists():
+            raise RuntimeError("found a driver result in the sandbox before launch")
+        run(["launch", owned_udid, BUNDLE_ID], timeout=60)
         deadline = time.monotonic() + 120
         while time.monotonic() < deadline:
             try:
@@ -122,26 +120,24 @@ def main() -> None:
         # The UUID was created by this run; delete only that simulator.
         active_error = sys.exc_info()[0] is not None
         try:
-            cleanup = subprocess.run(SIMCTL + ["delete", owned_udid], check=False,
-                                     capture_output=True, text=True, timeout=30)
-            if cleanup.stdout:
-                print(cleanup.stdout.rstrip(), flush=True)
-            if cleanup.stderr:
-                print(cleanup.stderr.rstrip(), file=sys.stderr, flush=True)
-            if cleanup.returncode:
-                raise RuntimeError(f"failed to delete owned simulator {owned_udid}: {cleanup.stderr.strip()}")
+            run(["delete", owned_udid], timeout=30)
             print(f"Removed owned simulator {owned_udid}", flush=True)
         except Exception as cleanup_error:
             if not active_error:
                 raise
             print(f"ERROR: simulator cleanup also failed: {cleanup_error}", file=sys.stderr, flush=True)
-        finally:
-            owned_udid = None
 
 
 if __name__ == "__main__":
     try:
         main()
+    except SimulatorUnavailable as error:
+        message = f"iOS Simulator infrastructure unavailable. {error} See the simctl discovery output above."
+        print(message, file=sys.stderr, flush=True)
+        if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
+            with Path(summary).open("a", encoding="utf-8") as stream:
+                print(f"### iOS Simulator infrastructure unavailable\n\n{error} See the simctl discovery log.", file=stream)
+        sys.exit(2)
     except Exception as error:
         print(f"ERROR: {error}", file=sys.stderr, flush=True)
         sys.exit(1)

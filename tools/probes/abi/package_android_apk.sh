@@ -23,7 +23,7 @@ nm="$toolchain/llvm-nm"
   echo "NDK lacks the ARM64 API 24 compiler or LLVM inspection tools." >&2; exit 2;
 }
 build_tools_dir="$(find "$sdk_root/build-tools" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1)"
-platform_dir="$(find "$sdk_root/platforms" -mindepth 1 -maxdepth 1 -type d -name 'android-*' -printf '%f\n' | sort -V | tail -n 1)"
+platform_dir="$(find "$sdk_root/platforms" -mindepth 2 -maxdepth 2 -name android.jar -printf '%h\n' | sort -V | tail -n 1)"
 [[ -n "$build_tools_dir" && -n "$platform_dir" ]] || {
   echo "Android SDK needs installed build-tools and platform android.jar." >&2; exit 2;
 }
@@ -31,11 +31,11 @@ build_tools="$sdk_root/build-tools/$build_tools_dir"
 aapt2="$build_tools/aapt2"
 zipalign="$build_tools/zipalign"
 apksigner="$build_tools/apksigner"
-android_jar="$sdk_root/platforms/$platform_dir/android.jar"
-for tool in "$aapt2" "$zipalign" "$apksigner" "$android_jar"; do
-  [[ -f "$tool" ]] || { echo "Missing Android SDK component: $tool" >&2; exit 2; }
+android_jar="$platform_dir/android.jar"
+for tool in "$aapt2" "$zipalign" "$apksigner"; do
+  [[ -x "$tool" ]] || { echo "Missing Android SDK executable: $tool" >&2; exit 2; }
 done
-printf 'NDK: %s\nSDK platform: %s\nBuild-tools: %s\n' "$ndk_root" "$platform_dir" "$build_tools_dir"
+printf 'NDK: %s\nSDK platform: %s\nBuild-tools: %s\n' "$ndk_root" "${platform_dir##*/}" "$build_tools_dir"
 
 output_dir="$repo_root/target/android-apk"
 mkdir -p "$output_dir"
@@ -51,18 +51,27 @@ export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$clang"
 cargo +1.100.0 build --locked --manifest-path tools/probes/abi/Cargo.toml \
   --release --target aarch64-linux-android --target-dir "$work_dir/target"
 
-"$clang" -std=c11 -Wall -Wextra -Werror -Dmain=oot_abi_driver_main \
+"$clang" -std=c11 -Wall -Wextra -Werror -fPIC -Dmain=oot_abi_driver_main \
   -Itools/probes/abi -c tools/probes/abi/driver.c -o "$work_dir/abi_driver.o"
 "$clang" -std=c11 -Wall -Wextra -Werror -fPIC -shared \
   -Wl,--no-undefined -Wl,-z,relro,-z,now -Wl,-soname,liboot_abi_probe.so \
+  -Wl,-z,max-page-size=16384,-z,common-page-size=16384 \
   tools/probes/abi/android/NativeActivity.c "$work_dir/abi_driver.o" \
   "$work_dir/target/aarch64-linux-android/release/liboot_abi_probe.a" \
-  -ldl -llog -lunwind -ldl -lm -lc -o "$work_dir/liboot_abi_probe.so"
+  -ldl -llog -lunwind -lm -lc -o "$work_dir/liboot_abi_probe.so"
 
 header="$("$readelf" -h "$work_dir/liboot_abi_probe.so")"
 grep -Eq 'Class:[[:space:]]+ELF64' <<<"$header"
 grep -Eq 'Machine:[[:space:]]+AArch64' <<<"$header"
 grep -Eq 'Type:[[:space:]]+DYN' <<<"$header"
+program_headers="$("$readelf" -lW "$work_dir/liboot_abi_probe.so")"
+load_alignments="$(awk '$1 == "LOAD" { print $NF }' <<<"$program_headers")"
+while IFS= read -r alignment; do
+  if [[ ! "$alignment" =~ ^0x[[:xdigit:]]+$ ]] || (( alignment < 16384 )); then
+    echo "Expected every ELF LOAD segment to have at least 16 KiB alignment." >&2
+    exit 1
+  fi
+done <<<"$load_alignments"
 symbols="$("$nm" -D --defined-only "$work_dir/liboot_abi_probe.so")"
 grep -Eq '[[:space:]]ANativeActivity_onCreate$' <<<"$symbols"
 grep -Eq '[[:space:]]oot_abi_driver_main$' <<<"$symbols"
@@ -73,7 +82,7 @@ cp "$work_dir/liboot_abi_probe.so" "$work_dir/apk/lib/arm64-v8a/"
   --manifest tools/probes/abi/android/AndroidManifest.xml
 cp "$work_dir/base.apk" "$work_dir/unsigned.apk"
 (cd "$work_dir/apk" && zip -0 -q "$work_dir/unsigned.apk" lib/arm64-v8a/liboot_abi_probe.so)
-"$zipalign" -f -p 4 "$work_dir/unsigned.apk" "$work_dir/aligned.apk"
+"$zipalign" -P 16 -f 4 "$work_dir/unsigned.apk" "$work_dir/aligned.apk"
 
 # Credentials and the synthetic private key exist only in the temp directory.
 store_password="$(openssl rand -hex 24)"
@@ -86,15 +95,19 @@ keytool -genkeypair -noprompt -keystore "$work_dir/synthetic.jks" \
   --ks-pass "pass:$store_password" --key-pass "pass:$key_password" \
   --out "$work_dir/signed.apk" "$work_dir/aligned.apk"
 "$apksigner" verify --verbose --print-certs "$work_dir/signed.apk"
-"$zipalign" -c -p 4 "$work_dir/signed.apk"
+"$zipalign" -c -P 16 -v 4 "$work_dir/signed.apk"
 
 package_info="$("$aapt2" dump badging "$work_dir/signed.apk")"
 grep -Fq "package: name='dev.ootuniversal.abiprobe'" <<<"$package_info"
 grep -Fq "launchable-activity: name='android.app.NativeActivity'" <<<"$package_info"
-unzip -l "$work_dir/signed.apk" | grep -F 'lib/arm64-v8a/liboot_abi_probe.so'
+grep -Fxq "native-code: 'arm64-v8a'" <<<"$package_info"
+apk_entries="$(unzip -lv "$work_dir/signed.apk")"
+awk '$2 == "Stored" && $NF == "lib/arm64-v8a/liboot_abi_probe.so" { found++ }
+     END { exit found != 1 }' <<<"$apk_entries"
+unzip -p "$work_dir/signed.apk" lib/arm64-v8a/liboot_abi_probe.so | cmp - "$work_dir/liboot_abi_probe.so"
 manifest_tree="$("$aapt2" dump xmltree "$work_dir/signed.apk" --file AndroidManifest.xml)"
 grep -Fq 'android.app.lib_name' <<<"$manifest_tree"
 grep -Fq 'oot_abi_probe' <<<"$manifest_tree"
 install -m 0644 "$work_dir/signed.apk" "$output_apk"
-echo "PASS: manifest, arm64-v8a library, NativeActivity entry and APK signature verified"
+echo "PASS: manifest, arm64-v8a library, NativeActivity entry, 16 KiB alignment and APK signature verified"
 echo "Built $output_apk; no device execution performed."
