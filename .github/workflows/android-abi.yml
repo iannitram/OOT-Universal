@@ -38,11 +38,12 @@ jobs:
 
       - name: Link synthetic ABI executable with runner NDK
         run: |
-          if [[ -z "${ANDROID_NDK_LATEST_HOME:-}" ]]; then
-            echo "GitHub-hosted Ubuntu image did not expose ANDROID_NDK_LATEST_HOME." >&2
+          if [[ -z "${ANDROID_NDK_LATEST_HOME:-}" || -z "${ANDROID_HOME:-}" ]]; then
+            echo "GitHub-hosted Ubuntu image did not expose its preinstalled Android SDK and NDK." >&2
             exit 1
           fi
-          echo "NDK: $ANDROID_NDK_LATEST_HOME"
+          echo "Runner preinstalled NDK: $ANDROID_NDK_LATEST_HOME"
+          echo "Runner preinstalled SDK: $ANDROID_HOME"
           "$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" --version
           ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" \
             ANDROID_API_LEVEL=24 \
@@ -62,3 +63,16 @@ jobs:
 
       - name: Link generated G2 fixtures for Android ARM64
         run: bash tools/probes/android/build-android-g2.sh
+
+      - name: Package and verify synthetic NativeActivity APK
+        run: |
+          ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" \
+          ANDROID_SDK_ROOT="$ANDROID_HOME" \
+            bash tools/probes/abi/package_android_apk.sh
+
+      - name: Upload verified synthetic APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: oot-abi-android-arm64-apk
+          path: target/android-apk/OotAbiProbe.apk
+          if-no-files-found: error
