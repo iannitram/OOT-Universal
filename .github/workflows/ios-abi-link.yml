@@ -1,0 +1,35 @@
+name: iOS synthetic ABI link
+
+on:
+  pull_request:
+    paths:
+      - 'tools/probes/abi/**'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/ios-abi-link.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tools/probes/abi/**'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/ios-abi-link.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ios-abi-link:
+    name: iOS device and simulator ABI link
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@1.100.0
+        with:
+          targets: aarch64-apple-ios, aarch64-apple-ios-sim
+
+      - name: Link and inspect iOS ABI probe
+        run: bash tools/probes/abi/link_ios.sh

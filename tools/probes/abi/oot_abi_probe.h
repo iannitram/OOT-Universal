@@ -20,6 +20,14 @@ int32_t oot_abi_probe_create(OotAbiCallback callback, void *context, OotAbiProbe
  * Calls the callback synchronously and writes its returned value on success.
  */
 int32_t oot_abi_probe_call(OotAbiProbe *probe, int32_t value, int32_t *out_value);
+/* Each probe owns 64 zero-initialized scratch bytes. Offsets and counts are
+ * fixed-width byte values. Zero-count copies allow a NULL buffer. Nonzero
+ * buffers must be valid for count bytes and must not overlap the probe
+ * allocation. Invalid ranges return INVALID without changing scratch memory or
+ * the read destination. Calls and shutdown for a probe must be serialized.
+ */
+int32_t oot_abi_probe_read(OotAbiProbe *probe, uint64_t offset, uint64_t count, uint8_t *destination);
+int32_t oot_abi_probe_write(OotAbiProbe *probe, uint64_t offset, uint64_t count, const uint8_t *source);
 /* Requires the owning pointer slot from create, outside the allocation.
  * Frees the probe and clears the slot. A second shutdown returns INVALID.
  * Any copied handles become invalid after shutdown.

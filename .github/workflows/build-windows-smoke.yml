@@ -1,0 +1,35 @@
+name: Windows synthetic staged build
+on:
+  pull_request:
+    paths:
+      - 'crates/build/**'
+      - 'tools/probes/build/**'
+      - '.github/workflows/build-windows-smoke.yml'
+      - 'rust-toolchain.toml'
+  push:
+    branches: [main]
+    paths:
+      - 'crates/build/**'
+      - 'tools/probes/build/**'
+      - '.github/workflows/build-windows-smoke.yml'
+      - 'rust-toolchain.toml'
+
+permissions:
+  contents: read
+
+jobs:
+  staged-build-windows:
+    name: Windows native Clang staged build smoke
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@1.100.0
+
+      - name: Build, publish, and execute synthetic probe
+        shell: pwsh
+        run: ./tools/probes/build/run-windows-smoke.ps1

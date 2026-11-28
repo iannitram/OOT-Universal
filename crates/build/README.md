@@ -18,6 +18,16 @@ Run an actual host compiler smoke build (Linux example, using an explicit compil
 cargo run --manifest-path crates/build/Cargo.toml --example smoke -- /usr/bin/cc /tmp/oot-synthetic-output
 ```
 
+The hosted Windows job runs the same smoke example with Clang and an output path containing spaces, then runs the published executable. From the repository root, run `./tools/probes/build/run-windows-smoke.ps1` in PowerShell to reproduce it.
+
+The job also runs a native regression test that requires a compiler. To run just that test, set `OOT_BUILD_TEST_COMPILER` to the absolute path of a compatible host compiler and run:
+
+```sh
+cargo test --locked -p oot-build-probe --test native_failures -- --ignored
+```
+
+The test checks that a compiler exit and cancellation after compilation each preserve the prior executable and remove staging.
+
 No production game-build CLI is exposed.
 
 The compiler must be a host compiler that accepts the fixed options and produces an executable runnable on the current host. This proves only a local synthetic C build and execution. It does not invoke a real game recompiler, consume an `oot-copy` token, build a game library, establish a selected-base interface, or prove mobile toolchain behavior.
