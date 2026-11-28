@@ -155,3 +155,106 @@ fn native_success_compiler_failure_and_post_compile_cancellation() {
     assert!(matches!(cancelled, Err(BuildError::Cancelled)));
     assert_prior_generation(&output_root, &previous);
 }
+
+#[test]
+#[ignore = "requires OOT_BUILD_TEST_COMPILER to name an absolute native compiler executable"]
+fn native_probe_failures_preserve_previous_generation() {
+    let compiler = PathBuf::from(
+        std::env::var_os("OOT_BUILD_TEST_COMPILER")
+            .expect("set OOT_BUILD_TEST_COMPILER to an absolute native compiler path"),
+    );
+    assert!(compiler.is_absolute() && compiler.is_file());
+    let temp = TempDir::new();
+    let output_root = temp.0.join("output");
+    let config = BuildConfig {
+        compiler: compiler.clone(),
+        output_root: output_root.clone(),
+    };
+    let previous = build_synthetic(&config, || false).expect("establish previous generation");
+
+    // This compiler stand-in copies its adjacent, already compiled fixture to
+    // the requested output path and reports success. No shell is involved.
+    let wrapper_source = temp.0.join("wrapper.c");
+    fs::write(
+        &wrapper_source,
+        r#"
+#define _CRT_SECURE_NO_WARNINGS
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#ifndef _WIN32
+#include <sys/stat.h>
+#endif
+int main(int argc, char **argv) {
+    size_t n = strlen(argv[0]) + sizeof(".fixture");
+    char *source = malloc(n);
+    if (!source || argc < 2) return 1;
+    snprintf(source, n, "%s.fixture", argv[0]);
+    FILE *in = fopen(source, "rb"), *out = fopen(argv[argc - 1], "wb");
+    free(source);
+    if (!in || !out) return 2;
+    int c;
+    while ((c = fgetc(in)) != EOF) if (fputc(c, out) == EOF) return 3;
+    if (ferror(in) || fclose(in) || fclose(out)) return 4;
+#ifndef _WIN32
+    if (chmod(argv[argc - 1], 0700)) return 5;
+#endif
+    return 0;
+}
+"#,
+    )
+    .expect("write wrapper source");
+    let build = |source: &Path, output: &Path| {
+        let result = Command::new(&compiler)
+            .args(["-std=c11", "-Wall", "-Wextra", "-Werror", "-O2"])
+            .arg(source)
+            .arg("-o")
+            .arg(output)
+            .output()
+            .expect("run native compiler");
+        assert!(
+            result.status.success(),
+            "compile failed: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    };
+    let wrapper = temp.0.join(if cfg!(windows) {
+        "wrapper.exe"
+    } else {
+        "wrapper"
+    });
+    build(&wrapper_source, &wrapper);
+    let fixture_source = temp.0.join("bad_fixture.c");
+    let fixture = PathBuf::from(format!("{}.fixture", wrapper.display()));
+    let bad_config = BuildConfig {
+        compiler: wrapper,
+        output_root: output_root.clone(),
+    };
+
+    fs::write(
+        &fixture_source,
+        "#include <stdio.h>\nint main(void) { fputs(\"probe failure\", stderr); return 23; }\n",
+    )
+    .unwrap();
+    build(&fixture_source, &fixture);
+    match build_synthetic(&bad_config, || false) {
+        Err(BuildError::ProbeFailed { status, stderr }) => {
+            assert_eq!(status, Some(23));
+            assert_eq!(stderr, "probe failure");
+        }
+        other => panic!("expected probe failure, got {other:?}"),
+    }
+    assert_prior_generation(&output_root, &previous);
+
+    fs::write(
+        &fixture_source,
+        "#include <stdio.h>\nint main(void) { fputs(\"wrong bytes\", stdout); return 0; }\n",
+    )
+    .unwrap();
+    build(&fixture_source, &fixture);
+    match build_synthetic(&bad_config, || false) {
+        Err(BuildError::UnexpectedOutput(output)) => assert_eq!(output, "wrong bytes"),
+        other => panic!("expected unexpected output, got {other:?}"),
+    }
+    assert_prior_generation(&output_root, &previous);
+}
