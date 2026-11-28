@@ -1,4 +1,4 @@
-name: Native Metal compute probe
+name: Native Metal compute and draw probe
 
 on:
   pull_request:
@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   metal-arm64:
-    name: macOS ARM64 Metal compile and compute
+    name: macOS ARM64 Metal compile, compute, and draw
     runs-on: macos-latest
     timeout-minutes: 10
     steps:
@@ -33,5 +33,5 @@ jobs:
           test "${architecture}" = arm64
           clang --version
 
-      - name: Compile and run authored Metal compute probe
+      - name: Compile and run authored Metal compute and draw probe
         run: bash tools/probes/metal/run.sh
