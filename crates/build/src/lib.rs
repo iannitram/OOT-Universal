@@ -1,9 +1,9 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 const FIXTURE: &str = include_str!("../fixtures/synthetic.c");
@@ -60,8 +60,8 @@ pub struct BuildConfig {
 
 /// Compile and execute the bundled fixture, then atomically publish a new generation.
 ///
-/// Cancellation is checked between operations. A running compiler or executable is not
-/// interrupted; the predicate is checked again when that child exits.
+/// A running compiler is not interrupted. Cancellation kills and reaps the direct
+/// synthetic executable child; it does not manage any descendants.
 pub fn build_synthetic<F>(config: &BuildConfig, mut cancelled: F) -> Result<PathBuf, BuildError>
 where
     F: FnMut() -> bool,
@@ -117,8 +117,7 @@ where
         });
     }
 
-    let run = Command::new(&executable).current_dir(staging).output()?;
-    check_cancelled(cancelled)?;
+    let run = run_probe(&executable, staging, cancelled)?;
     if !run.status.success() {
         return Err(BuildError::ProbeFailed {
             status: run.status.code(),
@@ -130,6 +129,78 @@ where
         return Err(BuildError::UnexpectedOutput(output));
     }
     Ok(())
+}
+
+fn run_probe<F>(
+    executable: &Path,
+    staging: &Path,
+    cancelled: &mut F,
+) -> Result<std::process::Output, BuildError>
+where
+    F: FnMut() -> bool,
+{
+    let capture_id = next_id();
+    let stdout_path = staging.join(format!("stdout-{capture_id}"));
+    let stderr_path = staging.join(format!("stderr-{capture_id}"));
+    let stdout = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&stdout_path)?;
+    let stderr = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&stderr_path)?;
+    let mut child = RunningProbe(
+        Command::new(executable)
+            .current_dir(staging)
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(stdout))
+            .stderr(Stdio::from(stderr))
+            .spawn()?,
+    );
+    let status = loop {
+        if let Some(status) = child.0.try_wait()? {
+            break status;
+        }
+        if cancelled() {
+            child.terminate()?;
+            return Err(BuildError::Cancelled);
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    check_cancelled(cancelled)?;
+    let output = std::process::Output {
+        status,
+        stdout: fs::read(&stdout_path)?,
+        stderr: fs::read(&stderr_path)?,
+    };
+    fs::remove_file(stdout_path)?;
+    fs::remove_file(stderr_path)?;
+    Ok(output)
+}
+
+struct RunningProbe(Child);
+
+impl RunningProbe {
+    fn terminate(&mut self) -> io::Result<()> {
+        if let Err(error) = self.0.kill() {
+            // On Windows an exit racing with kill can return an error.
+            return match self.0.try_wait()? {
+                Some(_) => Ok(()),
+                None => Err(error),
+            };
+        }
+        self.0.wait()?;
+        Ok(())
+    }
+}
+
+impl Drop for RunningProbe {
+    fn drop(&mut self) {
+        if !matches!(self.0.try_wait(), Ok(Some(_))) {
+            let _ = self.terminate();
+        }
+    }
 }
 
 fn check_cancelled<F: FnMut() -> bool>(cancelled: &mut F) -> Result<(), BuildError> {
