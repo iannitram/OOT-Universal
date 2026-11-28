@@ -2,6 +2,7 @@
 
 typedef struct {
     uint64_t x[32];
+    uint64_t vreg[32][2];
     uint64_t pc;
     uint8_t memory[16];
     int fault;
@@ -58,6 +59,10 @@ static void load(Ctx *c) {
 #include "load.inc"
 }
 
+static void vector_move_immediate(Ctx *c) {
+#include "vector.inc"
+}
+
 static int memory_matches(const Ctx *c) {
     static const uint8_t expected[] = {
         0, 0, 0, 0, 0, 0, 0, 0,
@@ -96,5 +101,15 @@ int main(void) {
     c.fault = 0;
     load(&c);
     if (!c.fault || c.x[2] != 0) return 8;
+
+    c.vreg[0][0] = UINT64_MAX;
+    c.vreg[0][1] = UINT64_C(0xaaaaaaaaaaaaaaaa);
+    c.vreg[1][0] = UINT64_C(0x0123456789abcdef);
+    c.vreg[1][1] = UINT64_C(0xfedcba9876543210);
+    vector_move_immediate(&c);
+    if (c.vreg[0][0] != UINT64_C(0x0000001200000012)
+            || c.vreg[0][1] != UINT64_C(0x0000001200000012)) return 9;
+    if (c.vreg[1][0] != UINT64_C(0x0123456789abcdef)
+            || c.vreg[1][1] != UINT64_C(0xfedcba9876543210)) return 10;
     return 0;
 }

@@ -39,6 +39,7 @@ def translate(library):
         "branch": (0xb4000040, 2),  # cbz x0, 0x10008
         "store": (0xf9000020, 0),   # str x0, [x1]
         "load": (0xf9400022, 0),    # ldr x2, [x1]
+        "vector": (0x4f000640, 0),  # movi v0.4s, #18
     }
     result = {}
     for name, (word, expected_flags) in instructions.items():
@@ -96,7 +97,7 @@ def main():
             run(str(exe))
             run(args.clang, "--target=aarch64-none-elf", "-ffreestanding", *common,
                 "-c", str(FIXTURE), "-o", str(directory / "probe-aarch64.o"))
-            print(f"{name}: ADD, branch and memory native checks passed, "
+            print(f"{name}: ADD, branch, memory and vector native checks passed, "
                   "AArch64 object compiled", flush=True)
 
 
