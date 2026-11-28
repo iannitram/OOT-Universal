@@ -5,6 +5,7 @@ use std::num::NonZeroU32;
 pub const SETTINGS_SCHEMA_VERSION: u32 = 1;
 
 /// Resolution requested by the user. Explicit dimensions cannot be zero.
+/// The renderer will check the requested size against device capabilities.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum Resolution {
     Native,
