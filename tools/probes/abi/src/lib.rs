@@ -8,11 +8,13 @@ pub type Callback = Option<unsafe extern "C" fn(context: *mut c_void, value: i32
 pub struct Probe {
     callback: unsafe extern "C" fn(context: *mut c_void, value: i32) -> i32,
     context: *mut c_void,
+    scratch: [u8; SCRATCH_SIZE],
 }
 
 const OK: i32 = 0;
 const INVALID: i32 = 1;
 const PANIC: i32 = 3;
+const SCRATCH_SIZE: usize = 64;
 
 /// # Safety
 /// A non-null output slot must point to writable, aligned storage containing an
@@ -34,10 +36,81 @@ pub unsafe extern "C" fn oot_abi_probe_create(
         let Some(callback) = callback else {
             return INVALID;
         };
-        let probe = Box::new(Probe { callback, context });
+        let probe = Box::new(Probe {
+            callback,
+            context,
+            scratch: [0; SCRATCH_SIZE],
+        });
         unsafe { *out_probe = Box::into_raw(probe) };
         OK
     })
+}
+
+/// Copy bytes from the probe-owned scratch area. Zero-byte reads permit a null
+/// destination; nonzero reads require a writable destination of `count` bytes.
+/// The probe must be live, and calls must be serialized with other probe calls.
+///
+/// # Safety
+/// `probe` must be a live handle created by `oot_abi_probe_create`. For nonzero
+/// counts, `destination` must be writable for `count` bytes and must not overlap
+/// the probe allocation. The destination must also be properly aligned for `u8`.
+#[no_mangle]
+pub unsafe extern "C" fn oot_abi_probe_read(
+    probe: *mut Probe,
+    offset: u64,
+    count: u64,
+    destination: *mut u8,
+) -> i32 {
+    guarded(|| {
+        let Some((start, end, count)) = checked_range(offset, count) else {
+            return INVALID;
+        };
+        if probe.is_null() || (count != 0 && destination.is_null()) {
+            return INVALID;
+        }
+        if count != 0 {
+            let p = unsafe { &*probe };
+            unsafe { ptr::copy_nonoverlapping(p.scratch[start..end].as_ptr(), destination, count) };
+        }
+        OK
+    })
+}
+
+/// Copy bytes into the probe-owned scratch area. Zero-byte writes permit a null
+/// source. A rejected range leaves the entire scratch area unchanged.
+///
+/// # Safety
+/// `probe` must be a live handle created by `oot_abi_probe_create`. For nonzero
+/// counts, `source` must be readable for `count` bytes and must not overlap the
+/// probe allocation. The source must also be properly aligned for `u8`.
+#[no_mangle]
+pub unsafe extern "C" fn oot_abi_probe_write(
+    probe: *mut Probe,
+    offset: u64,
+    count: u64,
+    source: *const u8,
+) -> i32 {
+    guarded(|| {
+        let Some((start, end, count)) = checked_range(offset, count) else {
+            return INVALID;
+        };
+        if probe.is_null() || (count != 0 && source.is_null()) {
+            return INVALID;
+        }
+        if count != 0 {
+            let p = unsafe { &mut *probe };
+            unsafe { ptr::copy_nonoverlapping(source, p.scratch[start..end].as_mut_ptr(), count) };
+        }
+        OK
+    })
+}
+
+fn checked_range(offset: u64, count: u64) -> Option<(usize, usize, usize)> {
+    let end = offset.checked_add(count)?;
+    if end > SCRATCH_SIZE as u64 {
+        return None;
+    }
+    Some((offset as usize, end as usize, count as usize))
 }
 
 /// # Safety
@@ -94,7 +167,7 @@ mod tests {
     fn layout_is_c_compatible_pointer_sized() {
         assert_eq!(
             std::mem::size_of::<Probe>(),
-            2 * std::mem::size_of::<usize>()
+            2 * std::mem::size_of::<usize>() + SCRATCH_SIZE
         );
     }
 }
