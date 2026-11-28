@@ -45,7 +45,8 @@ jobs:
 
   g2-windows-x64:
     name: G2 synthetic probe (Windows x86-64)
-    runs-on: windows-latest
+    # Keep the runner's Clang compatible with the installed C++ standard library.
+    runs-on: windows-2022
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
