@@ -17,8 +17,8 @@ The hosted `cross-check` job also runs `cargo check --locked --workspace --targe
 for `aarch64-linux-android`, `aarch64-apple-ios`, and
 `aarch64-apple-ios-sim`. Run a target check locally after installing that Rust
 target with `rustup target add TARGET`. The workflow assigns the iOS jobs to
-macOS. For the current dependency-free workspace, a Rust-only target check can
-also run on Linux with the target standard library installed. Linking an
+macOS. The current workspace has no target SDK dependencies for a Rust-only
+check, which can also run on Linux with the target standard library installed. Linking an
 iOS app requires the Apple SDK and toolchain. These checks establish Rust
 compilation only. Native linking, packaging, signing, installation and
 runtime behavior require separate checks.

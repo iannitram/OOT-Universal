@@ -1,9 +1,9 @@
 //! Pure identity validation for OOT Universal.
 //!
-//! This crate accepts only the exact program, update version, and build listed
-//! by the project specification. Passing this gate says nothing about whether
-//! a local directory or archive is complete, readable, or safe to extract; it
-//! does not inspect files or provide full copy support.
+//! This crate validates the supported program, update version, and build.
+//! [`synthetic`] adds a bounded validator for an authored two-asset fixture;
+//! it is not game metadata inspection, filesystem extraction, or real install
+//! acceptance.
 
 use std::fmt;
 
@@ -154,3 +154,5 @@ mod tests {
         );
     }
 }
+
+pub mod synthetic;
