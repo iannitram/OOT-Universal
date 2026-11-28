@@ -1,7 +1,9 @@
 #[path = "native_failures/concurrent.rs"]
 mod concurrent;
 
-use oot_build_probe::{build_synthetic, BuildConfig, BuildError};
+use oot_build_probe::{
+    build_synthetic, verify_generation, BuildConfig, BuildError, VerifyError, SYNTHETIC_FIXTURE_ID,
+};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -69,6 +71,17 @@ fn assert_prior_generation(root: &Path, previous: &Path) {
         "only the prior generation should remain"
     );
     assert_probe_output(&previous.join(PROBE_NAME));
+    verify_generation(previous).expect("prior generation manifest should still verify");
+}
+
+fn copy_generation(source: &Path, destination: &Path) {
+    fs::create_dir(destination).expect("create copied generation");
+    fs::copy(source.join(PROBE_NAME), destination.join(PROBE_NAME)).expect("copy executable");
+    fs::copy(
+        source.join("artifact.manifest"),
+        destination.join("artifact.manifest"),
+    )
+    .expect("copy artifact manifest");
 }
 
 #[test]
@@ -88,6 +101,15 @@ fn native_success_compiler_failure_and_post_compile_cancellation() {
     let previous = build_synthetic(&config, || false).expect("native build should succeed");
     let previous_executable = previous.join(PROBE_NAME);
     assert_probe_output(&previous_executable);
+    let record = verify_generation(&previous).expect("published manifest should verify");
+    assert_eq!(record.format_version, 1);
+    assert_eq!(record.fixture_id, SYNTHETIC_FIXTURE_ID);
+    assert_eq!(
+        record.executable_size,
+        fs::metadata(&previous_executable).unwrap().len()
+    );
+    let manifest_text = fs::read_to_string(previous.join("artifact.manifest")).unwrap();
+    assert!(!manifest_text.contains(&output_root.to_string_lossy().to_string()));
 
     // Compile a tiny native compiler stand-in. It receives the build's normal
     // compiler arguments, writes diagnostic text, and exits unsuccessfully.
@@ -162,6 +184,105 @@ fn native_success_compiler_failure_and_post_compile_cancellation() {
     });
     assert!(matches!(cancelled, Err(BuildError::Cancelled)));
     assert_prior_generation(&output_root, &previous);
+
+    // Cancellation after the manifest is written but before the staging rename
+    // must leave the verified prior generation intact.
+    let cancelled_before_publish = build_synthetic(&config, || {
+        fs::read_dir(&output_root).unwrap().any(|entry| {
+            let path = entry.unwrap().path();
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with("staging-"))
+                && path.join("artifact.manifest").exists()
+        })
+    });
+    assert!(matches!(
+        cancelled_before_publish,
+        Err(BuildError::Cancelled)
+    ));
+    assert_prior_generation(&output_root, &previous);
+}
+
+#[test]
+#[ignore = "requires OOT_BUILD_TEST_COMPILER to name an absolute native compiler executable"]
+fn native_manifest_verifier_rejects_corrupt_and_truncated_records_and_artifacts() {
+    let compiler = native_compiler();
+    let temp = TempDir::new();
+    let output_root = temp.0.join("output");
+    let generation = build_synthetic(
+        &BuildConfig {
+            compiler,
+            output_root,
+        },
+        || false,
+    )
+    .expect("native build should publish");
+
+    let cases = temp.0.join("cases");
+    fs::create_dir(&cases).unwrap();
+
+    let malformed = cases.join("malformed-metadata");
+    copy_generation(&generation, &malformed);
+    fs::write(malformed.join("artifact.manifest"), "format_version=2\n")
+        .expect("write altered metadata");
+    assert!(matches!(
+        verify_generation(&malformed),
+        Err(VerifyError::MalformedMetadata(_))
+    ));
+
+    let truncated_metadata = cases.join("truncated-metadata");
+    copy_generation(&generation, &truncated_metadata);
+    let manifest = fs::read(truncated_metadata.join("artifact.manifest")).unwrap();
+    fs::write(
+        truncated_metadata.join("artifact.manifest"),
+        &manifest[..manifest.len() / 2],
+    )
+    .expect("truncate metadata");
+    assert!(matches!(
+        verify_generation(&truncated_metadata),
+        Err(VerifyError::MalformedMetadata(_))
+    ));
+
+    let corrupt_metadata = cases.join("corrupt-metadata");
+    copy_generation(&generation, &corrupt_metadata);
+    let mut manifest = fs::read(corrupt_metadata.join("artifact.manifest")).unwrap();
+    let digest_start = manifest
+        .windows(7)
+        .position(|window| window == b"sha256=")
+        .unwrap()
+        + 7;
+    manifest[digest_start] = if manifest[digest_start] == b'0' {
+        b'1'
+    } else {
+        b'0'
+    };
+    fs::write(corrupt_metadata.join("artifact.manifest"), manifest).expect("corrupt digest");
+    assert!(matches!(
+        verify_generation(&corrupt_metadata),
+        Err(VerifyError::DigestMismatch)
+    ));
+
+    let truncated_artifact = cases.join("truncated-artifact");
+    copy_generation(&generation, &truncated_artifact);
+    let executable = truncated_artifact.join(PROBE_NAME);
+    let bytes = fs::read(&executable).unwrap();
+    fs::write(&executable, &bytes[..bytes.len() - 1]).expect("truncate executable");
+    assert!(matches!(
+        verify_generation(&truncated_artifact),
+        Err(VerifyError::SizeMismatch { .. })
+    ));
+
+    let corrupt_artifact = cases.join("corrupt-artifact");
+    copy_generation(&generation, &corrupt_artifact);
+    let executable = corrupt_artifact.join(PROBE_NAME);
+    let mut bytes = fs::read(&executable).unwrap();
+    bytes[0] ^= 0x01;
+    fs::write(&executable, bytes).expect("corrupt executable");
+    assert!(matches!(
+        verify_generation(&corrupt_artifact),
+        Err(VerifyError::DigestMismatch)
+    ));
+
+    verify_generation(&generation).expect("original published generation remains valid");
 }
 
 #[test]

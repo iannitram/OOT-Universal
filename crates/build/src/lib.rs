@@ -1,5 +1,6 @@
+use sha2::{Digest, Sha256};
 use std::fs;
-use std::io;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -7,6 +8,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 const FIXTURE: &str = include_str!("../fixtures/synthetic.c");
+pub const SYNTHETIC_FIXTURE_ID: &str = "oot-build-probe.synthetic-c.v1";
+const MANIFEST_NAME: &str = "artifact.manifest";
+const MAX_MANIFEST_BYTES: usize = 256;
+const MAX_EXECUTABLE_BYTES: u64 = 64 * 1024 * 1024;
 #[cfg(not(windows))]
 const EXPECTED_OUTPUT: &str = "synthetic-build-ok\n";
 #[cfg(windows)]
@@ -40,6 +45,101 @@ impl std::fmt::Display for BuildError {
 }
 
 impl std::error::Error for BuildError {}
+
+/// A strictly parsed record for a successfully published synthetic executable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArtifactRecord {
+    pub format_version: u32,
+    pub fixture_id: String,
+    pub executable_size: u64,
+    pub sha256: String,
+}
+
+/// Failure while validating a generation's bounded artifact record and executable.
+#[derive(Debug)]
+pub enum VerifyError {
+    Io(io::Error),
+    MetadataTooLarge,
+    MalformedMetadata(&'static str),
+    FixtureMismatch,
+    SizeMismatch { expected: u64, actual: u64 },
+    DigestMismatch,
+}
+
+impl std::fmt::Display for VerifyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(error) => write!(f, "artifact verification I/O failed: {error}"),
+            Self::MetadataTooLarge => write!(f, "artifact metadata exceeds the size limit"),
+            Self::MalformedMetadata(reason) => write!(f, "malformed artifact metadata: {reason}"),
+            Self::FixtureMismatch => write!(f, "artifact fixture identifier does not match"),
+            Self::SizeMismatch { expected, actual } => {
+                write!(
+                    f,
+                    "artifact size mismatch: expected {expected}, got {actual}"
+                )
+            }
+            Self::DigestMismatch => write!(f, "artifact SHA-256 does not match metadata"),
+        }
+    }
+}
+
+impl std::error::Error for VerifyError {}
+
+impl From<io::Error> for VerifyError {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
+    }
+}
+
+/// Verify a published generation using its strict, bounded metadata record.
+///
+/// The verifier accepts only format version 1 and the bundled synthetic fixture
+/// identifier. Metadata is capped at 256 bytes and executable hashing at 64 MiB.
+pub fn verify_generation(generation: &Path) -> Result<ArtifactRecord, VerifyError> {
+    let manifest_path = generation.join(MANIFEST_NAME);
+    let metadata = fs::metadata(&manifest_path)?;
+    if metadata.len() > MAX_MANIFEST_BYTES as u64 {
+        return Err(VerifyError::MetadataTooLarge);
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    fs::File::open(manifest_path)?
+        .take((MAX_MANIFEST_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > MAX_MANIFEST_BYTES {
+        return Err(VerifyError::MetadataTooLarge);
+    }
+    let record = parse_manifest(&bytes)?;
+    if record.fixture_id != SYNTHETIC_FIXTURE_ID {
+        return Err(VerifyError::FixtureMismatch);
+    }
+
+    let executable_path = generation.join(binary_name());
+    let file = fs::File::open(executable_path)?;
+    let actual_size = file.metadata()?.len();
+    if actual_size > MAX_EXECUTABLE_BYTES {
+        return Err(VerifyError::MalformedMetadata(
+            "executable exceeds the verification limit",
+        ));
+    }
+    if record.executable_size != actual_size {
+        return Err(VerifyError::SizeMismatch {
+            expected: record.executable_size,
+            actual: actual_size,
+        });
+    }
+    let (read_size, digest) = hash_bounded(file)?;
+    if read_size != record.executable_size {
+        return Err(VerifyError::SizeMismatch {
+            expected: record.executable_size,
+            actual: read_size,
+        });
+    }
+    if encode_hex(&digest) != record.sha256 {
+        return Err(VerifyError::DigestMismatch);
+    }
+    Ok(record)
+}
 
 impl From<io::Error> for BuildError {
     fn from(error: io::Error) -> Self {
@@ -78,6 +178,7 @@ where
     let root = config.output_root.canonicalize()?;
     let (staging, generation) = create_staging_dir(&root)?;
     let outcome = build_in_staging(config, &staging, &mut cancelled)
+        .and_then(|()| check_cancelled(&mut cancelled))
         .and_then(|()| fs::rename(&staging, &generation).map_err(BuildError::Publication));
     if outcome.is_err() {
         let _ = fs::remove_dir_all(&staging);
@@ -128,7 +229,125 @@ where
     if output != EXPECTED_OUTPUT {
         return Err(BuildError::UnexpectedOutput(output));
     }
+    write_manifest(staging, &executable)?;
     Ok(())
+}
+
+fn write_manifest(staging: &Path, executable: &Path) -> Result<(), BuildError> {
+    let file = fs::File::open(executable)?;
+    let (size, digest) = hash_bounded(file).map_err(BuildError::Publication)?;
+    let manifest = format!(
+        "format_version=1\nfixture_id={SYNTHETIC_FIXTURE_ID}\nexecutable_size={size}\nsha256={}\n",
+        encode_hex(&digest)
+    );
+    fs::write(staging.join(MANIFEST_NAME), manifest).map_err(BuildError::Publication)
+}
+
+fn hash_bounded(mut file: fs::File) -> io::Result<(u64, [u8; 32])> {
+    let mut hasher = Sha256::new();
+    let mut size = 0_u64;
+    let mut buffer = [0_u8; 8192];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        size = size.checked_add(read as u64).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidData, "executable size overflow")
+        })?;
+        if size > MAX_EXECUTABLE_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "executable exceeds the verification size limit",
+            ));
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok((size, hasher.finalize().into()))
+}
+
+fn encode_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        encoded.push(HEX[(byte >> 4) as usize] as char);
+        encoded.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    encoded
+}
+
+fn parse_manifest(bytes: &[u8]) -> Result<ArtifactRecord, VerifyError> {
+    if bytes.len() > MAX_MANIFEST_BYTES {
+        return Err(VerifyError::MetadataTooLarge);
+    }
+    let text = std::str::from_utf8(bytes)
+        .map_err(|_| VerifyError::MalformedMetadata("metadata is not UTF-8"))?;
+    let mut lines = text.split_terminator('\n');
+    let version_line = lines
+        .next()
+        .ok_or(VerifyError::MalformedMetadata("missing version"))?;
+    let fixture_line = lines
+        .next()
+        .ok_or(VerifyError::MalformedMetadata("missing fixture identifier"))?;
+    let size_line = lines
+        .next()
+        .ok_or(VerifyError::MalformedMetadata("missing executable size"))?;
+    let digest_line = lines
+        .next()
+        .ok_or(VerifyError::MalformedMetadata("missing SHA-256"))?;
+    if lines.next().is_some() || !text.ends_with('\n') {
+        return Err(VerifyError::MalformedMetadata(
+            "unexpected lines or missing final newline",
+        ));
+    }
+    if version_line != "format_version=1" {
+        return Err(VerifyError::MalformedMetadata("unsupported version"));
+    }
+    let fixture_id =
+        fixture_line
+            .strip_prefix("fixture_id=")
+            .ok_or(VerifyError::MalformedMetadata(
+                "invalid fixture identifier field",
+            ))?;
+    if fixture_id.is_empty() || fixture_id.contains('\r') || fixture_id.contains('\0') {
+        return Err(VerifyError::MalformedMetadata("invalid fixture identifier"));
+    }
+    let size_text =
+        size_line
+            .strip_prefix("executable_size=")
+            .ok_or(VerifyError::MalformedMetadata(
+                "invalid executable size field",
+            ))?;
+    if size_text.is_empty()
+        || (size_text.len() > 1 && size_text.starts_with('0'))
+        || !size_text.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return Err(VerifyError::MalformedMetadata("invalid executable size"));
+    }
+    let executable_size = size_text
+        .parse::<u64>()
+        .map_err(|_| VerifyError::MalformedMetadata("executable size overflow"))?;
+    if executable_size > MAX_EXECUTABLE_BYTES {
+        return Err(VerifyError::MalformedMetadata(
+            "executable exceeds the verification limit",
+        ));
+    }
+    let sha256 = digest_line
+        .strip_prefix("sha256=")
+        .ok_or(VerifyError::MalformedMetadata("invalid SHA-256 field"))?;
+    if sha256.len() != 64
+        || !sha256
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err(VerifyError::MalformedMetadata("invalid SHA-256"));
+    }
+    Ok(ArtifactRecord {
+        format_version: 1,
+        fixture_id: fixture_id.to_owned(),
+        executable_size,
+        sha256: sha256.to_owned(),
+    })
 }
 
 fn run_probe<F>(
@@ -299,6 +518,24 @@ mod tests {
         fs::create_dir(&previous).unwrap();
         fs::write(previous.join("keep.txt"), "previous-good-output").unwrap();
         previous
+    }
+
+    #[test]
+    fn manifest_parser_rejects_truncated_or_extra_metadata() {
+        let valid = b"format_version=1\nfixture_id=oot-build-probe.synthetic-c.v1\nexecutable_size=1\nsha256=0000000000000000000000000000000000000000000000000000000000000000\n";
+        assert!(matches!(
+            parse_manifest(&valid[..valid.len() - 1]),
+            Err(VerifyError::MalformedMetadata(_))
+        ));
+        let extra = [valid.as_slice(), b"extra\n".as_slice()].concat();
+        assert!(matches!(
+            parse_manifest(&extra),
+            Err(VerifyError::MalformedMetadata(_))
+        ));
+        assert!(matches!(
+            parse_manifest(&vec![b'x'; MAX_MANIFEST_BYTES + 1]),
+            Err(VerifyError::MetadataTooLarge)
+        ));
     }
 
     fn generation_count(root: &Path) -> usize {
