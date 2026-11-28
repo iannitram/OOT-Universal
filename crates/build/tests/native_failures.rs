@@ -2,7 +2,8 @@
 mod concurrent;
 
 use oot_build_probe::{
-    build_synthetic, verify_generation, BuildConfig, BuildError, VerifyError, SYNTHETIC_FIXTURE_ID,
+    build_synthetic, build_synthetic_snapshot, verify_generation, BuildConfig, BuildError,
+    VerifyError, SNAPSHOT_FIXTURE_ID, SYNTHETIC_FIXTURE_ID,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -45,6 +46,19 @@ fn native_compiler() -> PathBuf {
     assert!(compiler.is_absolute(), "compiler path must be absolute");
     assert!(compiler.is_file(), "compiler path must exist");
     compiler
+}
+
+fn owned_snapshot() -> oot_copy::synthetic::OwnedSyntheticAcceptance {
+    use oot_copy::synthetic::{read_synthetic_fixture, NamedAssetReader};
+    let identity = oot_contracts::CopyIdentity::new("0400486024DEC000", "v131072", "e0f3ccfa")
+        .expect("supported identity syntax");
+    let mut manifest: &[u8] = b"oot-synthetic-fixture-v1\n";
+    let mut payload: &[u8] = &[0x4f, 0x4f, 0x54, 0, 1, 0x7f, 0x80, 0xff];
+    let mut assets = [
+        NamedAssetReader::new("fixture/manifest.bin", &mut manifest),
+        NamedAssetReader::new("fixture/payload.bin", &mut payload),
+    ];
+    read_synthetic_fixture(&identity, &mut assets).expect("authored snapshot fixture")
 }
 
 fn assert_probe_output(path: &Path) {
@@ -204,6 +218,208 @@ fn native_success_compiler_failure_and_post_compile_cancellation() {
 
 #[test]
 #[ignore = "requires OOT_BUILD_TEST_COMPILER to name an absolute native compiler executable"]
+fn native_snapshot_build_checks_bytes_eof_and_preserves_prior_generation_on_failure() {
+    let compiler = native_compiler();
+    let temp = TempDir::new();
+    let output_root = temp.0.join("output");
+    let config = BuildConfig {
+        compiler: compiler.clone(),
+        output_root: output_root.clone(),
+    };
+    let prior = build_synthetic(&config, || false).expect("create prior generation");
+    let snapshot = owned_snapshot();
+    let generation = build_synthetic_snapshot(&config, &snapshot, || false)
+        .expect("snapshot build should verify and publish");
+    assert_eq!(
+        verify_generation(&generation).unwrap().fixture_id,
+        SNAPSHOT_FIXTURE_ID
+    );
+    assert_eq!(
+        fs::read(generation.join("fixture/manifest.bin")).unwrap(),
+        snapshot.manifest()
+    );
+    assert_eq!(
+        fs::read(generation.join("fixture/payload.bin")).unwrap(),
+        snapshot.payload()
+    );
+    let output = Command::new(generation.join(PROBE_NAME))
+        .current_dir(&generation)
+        .output()
+        .expect("run published snapshot probe");
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        if cfg!(windows) {
+            "synthetic-snapshot-ok\r\n"
+        } else {
+            "synthetic-snapshot-ok\n"
+        }
+    );
+
+    let cancelled = build_synthetic_snapshot(&config, &snapshot, || {
+        fs::read_dir(&output_root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .any(|entry| {
+                entry.file_name().to_string_lossy().starts_with("staging-")
+                    && entry.path().join(PROBE_NAME).exists()
+            })
+    });
+    assert!(matches!(cancelled, Err(BuildError::Cancelled)));
+    assert_probe_output(&prior.join(PROBE_NAME));
+    verify_generation(&prior).unwrap();
+    verify_generation(&generation).unwrap();
+    assert_eq!(fs::read_dir(&output_root).unwrap().count(), 2);
+
+    // The compiled fixture rejects an extra byte after an otherwise valid payload.
+    let fixture_dir = temp.0.join("fixture");
+    fs::create_dir(&fixture_dir).unwrap();
+    fs::write(fixture_dir.join("manifest.bin"), snapshot.manifest()).unwrap();
+    let mut bad_payload = snapshot.payload().to_vec();
+    bad_payload.push(0);
+    fs::write(fixture_dir.join("payload.bin"), bad_payload).unwrap();
+    let source = temp.0.join("snapshot.c");
+    fs::write(&source, include_str!("../fixtures/snapshot.c")).unwrap();
+    let executable = temp.0.join(PROBE_NAME);
+    let compile = Command::new(&compiler)
+        .args(["-std=c11", "-Wall", "-Wextra", "-Werror", "-O2"])
+        .arg(&source)
+        .arg("-o")
+        .arg(&executable)
+        .output()
+        .expect("compile snapshot verifier fixture");
+    assert!(
+        compile.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let rejected = Command::new(&executable)
+        .current_dir(&temp.0)
+        .output()
+        .expect("run corrupted snapshot fixture");
+    assert_eq!(rejected.status.code(), Some(23));
+    assert_eq!(
+        String::from_utf8_lossy(&rejected.stderr),
+        if cfg!(windows) {
+            "synthetic snapshot mismatch\r\n"
+        } else {
+            "synthetic snapshot mismatch\n"
+        }
+    );
+
+    // The compiler stand-in damages one byte after staging but installs the
+    // real verifier executable. The build must fail its fixture readback.
+    let staged_verifier = temp.0.join(if cfg!(windows) {
+        "probe-fixture.exe"
+    } else {
+        "probe-fixture"
+    });
+    let compile_verifier = Command::new(&compiler)
+        .args(["-std=c11", "-Wall", "-Wextra", "-Werror", "-O2"])
+        .arg(&source)
+        .arg("-o")
+        .arg(&staged_verifier)
+        .output()
+        .expect("compile verifier for corrupt-stage test");
+    assert!(
+        compile_verifier.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile_verifier.stderr)
+    );
+    let wrapper_source = temp.0.join("corrupting-compiler.c");
+    fs::write(
+        &wrapper_source,
+        r#"
+#define _CRT_SECURE_NO_WARNINGS
+#include <stdio.h>
+#ifndef _WIN32
+#include <sys/stat.h>
+#endif
+int main(int argc, char **argv) {
+    static const unsigned char damaged[] = {0x00, 0x4f, 0x54, 0x00, 0x01, 0x7f, 0x80, 0xff};
+    if (argc < 2) return 1;
+    FILE *asset = fopen("fixture/payload.bin", "wb");
+    if (!asset) return 2;
+    if (fwrite(damaged, 1, sizeof(damaged), asset) != sizeof(damaged) || fclose(asset)) return 3;
+#ifdef _WIN32
+    FILE *in = fopen("../../probe-fixture.exe", "rb");
+#else
+    FILE *in = fopen("../../probe-fixture", "rb");
+#endif
+    FILE *out = fopen(argv[argc - 1], "wb");
+    if (!in || !out) return 4;
+    int c;
+    while ((c = fgetc(in)) != EOF) if (fputc(c, out) == EOF) return 5;
+    if (ferror(in) || fclose(in) || fclose(out)) return 6;
+#ifndef _WIN32
+    if (chmod(argv[argc - 1], 0700)) return 7;
+#endif
+    return 0;
+}
+"#,
+    )
+    .expect("write corrupting compiler source");
+    let wrapper = temp.0.join(if cfg!(windows) {
+        "corrupting-compiler.exe"
+    } else {
+        "corrupting-compiler"
+    });
+    let compile_wrapper = Command::new(&compiler)
+        .args(["-std=c11", "-Wall", "-Wextra", "-Werror", "-O2"])
+        .arg(&wrapper_source)
+        .arg("-o")
+        .arg(&wrapper)
+        .output()
+        .expect("compile corrupting compiler");
+    assert!(
+        compile_wrapper.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile_wrapper.stderr)
+    );
+    let corrupt_config = BuildConfig {
+        compiler: wrapper,
+        output_root: output_root.clone(),
+    };
+    match build_synthetic_snapshot(&corrupt_config, &snapshot, || false) {
+        Err(BuildError::ProbeFailed { status, stderr }) => {
+            assert_eq!(status, Some(23));
+            assert_eq!(
+                stderr,
+                if cfg!(windows) {
+                    "synthetic snapshot mismatch\r\n"
+                } else {
+                    "synthetic snapshot mismatch\n"
+                }
+            );
+        }
+        other => panic!("expected corrupted staged snapshot to fail, got {other:?}"),
+    }
+    assert_probe_output(&prior.join(PROBE_NAME));
+    verify_generation(&prior).unwrap();
+    verify_generation(&generation).unwrap();
+    assert_eq!(fs::read_dir(&output_root).unwrap().count(), 2);
+
+    // A compiler failure in the new API leaves both already published generations intact.
+    let failing = BuildConfig {
+        compiler: temp.0.join("missing-compiler"),
+        output_root: output_root.clone(),
+    };
+    assert!(matches!(
+        build_synthetic_snapshot(&failing, &snapshot, || false),
+        Err(BuildError::Io(_))
+    ));
+    assert_probe_output(&prior.join(PROBE_NAME));
+    verify_generation(&prior).unwrap();
+    verify_generation(&generation).unwrap();
+    assert_eq!(
+        fs::read_dir(&output_root).unwrap().count(),
+        2,
+        "failed snapshot attempt must leave prior generations and no staging directory"
+    );
+}
+
+#[test]
+#[ignore = "requires OOT_BUILD_TEST_COMPILER to name an absolute native compiler executable"]
 fn native_manifest_verifier_rejects_corrupt_and_truncated_records_and_artifacts() {
     let compiler = native_compiler();
     let temp = TempDir::new();
@@ -321,6 +537,7 @@ int main(int argc, char **argv) {
 #endif
     return 0;
 }
+
 "#,
     )
     .expect("write wrapper source");

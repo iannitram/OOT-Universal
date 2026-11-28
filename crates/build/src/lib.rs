@@ -8,7 +8,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 const FIXTURE: &str = include_str!("../fixtures/synthetic.c");
+const SNAPSHOT_FIXTURE: &str = include_str!("../fixtures/snapshot.c");
 pub const SYNTHETIC_FIXTURE_ID: &str = "oot-build-probe.synthetic-c.v1";
+pub const SNAPSHOT_FIXTURE_ID: &str = "oot-build-probe.snapshot-c.v1";
 const MANIFEST_NAME: &str = "artifact.manifest";
 const MAX_MANIFEST_BYTES: usize = 256;
 const MAX_EXECUTABLE_BYTES: u64 = 64 * 1024 * 1024;
@@ -16,6 +18,10 @@ const MAX_EXECUTABLE_BYTES: u64 = 64 * 1024 * 1024;
 const EXPECTED_OUTPUT: &str = "synthetic-build-ok\n";
 #[cfg(windows)]
 const EXPECTED_OUTPUT: &str = "synthetic-build-ok\r\n";
+#[cfg(not(windows))]
+const SNAPSHOT_EXPECTED_OUTPUT: &str = "synthetic-snapshot-ok\n";
+#[cfg(windows)]
+const SNAPSHOT_EXPECTED_OUTPUT: &str = "synthetic-snapshot-ok\r\n";
 
 #[derive(Debug)]
 pub enum BuildError {
@@ -102,9 +108,9 @@ impl From<io::Error> for VerifyError {
 /// Verify a published generation using its strict, bounded metadata record.
 ///
 /// The verifier accepts only format version 1 and the bundled synthetic fixture
-/// identifier. It expects a trusted directory without concurrent changes and
-/// regular manifest and executable files. Metadata is capped at 256 bytes and
-/// executable hashing at 64 MiB.
+/// supported fixture identifiers. It expects a trusted directory without
+/// concurrent changes and regular manifest and executable files. Metadata is
+/// capped at 256 bytes and executable hashing at 64 MiB.
 pub fn verify_generation(generation: &Path) -> Result<ArtifactRecord, VerifyError> {
     let manifest = open_regular_file(&generation.join(MANIFEST_NAME))?;
     let metadata = manifest.metadata()?;
@@ -119,7 +125,7 @@ pub fn verify_generation(generation: &Path) -> Result<ArtifactRecord, VerifyErro
         return Err(VerifyError::MetadataTooLarge);
     }
     let record = parse_manifest(&bytes)?;
-    if record.fixture_id != SYNTHETIC_FIXTURE_ID {
+    if record.fixture_id != SYNTHETIC_FIXTURE_ID && record.fixture_id != SNAPSHOT_FIXTURE_ID {
         return Err(VerifyError::FixtureMismatch);
     }
 
@@ -174,7 +180,35 @@ pub fn build_synthetic<F>(config: &BuildConfig, mut cancelled: F) -> Result<Path
 where
     F: FnMut() -> bool,
 {
-    check_cancelled(&mut cancelled)?;
+    build(config, None, &mut cancelled)
+}
+
+/// Compile and execute the native fixture against an owned, validated synthetic
+/// acceptance snapshot, then publish a new generation.
+///
+/// The snapshot's manifest and payload bytes are staged under fixed fixture
+/// paths. The compiled fixture reads and checks every byte and requires EOF
+/// before it prints success. This remains synthetic validation only.
+pub fn build_synthetic_snapshot<F>(
+    config: &BuildConfig,
+    snapshot: &oot_copy::synthetic::OwnedSyntheticAcceptance,
+    mut cancelled: F,
+) -> Result<PathBuf, BuildError>
+where
+    F: FnMut() -> bool,
+{
+    build(config, Some(snapshot), &mut cancelled)
+}
+
+fn build<F>(
+    config: &BuildConfig,
+    snapshot: Option<&oot_copy::synthetic::OwnedSyntheticAcceptance>,
+    cancelled: &mut F,
+) -> Result<PathBuf, BuildError>
+where
+    F: FnMut() -> bool,
+{
+    check_cancelled(cancelled)?;
     if !config.compiler.is_absolute() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -185,8 +219,8 @@ where
     fs::create_dir_all(&config.output_root)?;
     let root = config.output_root.canonicalize()?;
     let (staging, generation) = create_staging_dir(&root)?;
-    let outcome = build_in_staging(config, &staging, &mut cancelled)
-        .and_then(|()| check_cancelled(&mut cancelled))
+    let outcome = build_in_staging(config, &staging, snapshot, cancelled)
+        .and_then(|()| check_cancelled(cancelled))
         .and_then(|()| fs::rename(&staging, &generation).map_err(BuildError::Publication));
     if outcome.is_err() {
         let _ = fs::remove_dir_all(&staging);
@@ -197,14 +231,29 @@ where
 fn build_in_staging<F>(
     config: &BuildConfig,
     staging: &Path,
+    snapshot: Option<&oot_copy::synthetic::OwnedSyntheticAcceptance>,
     cancelled: &mut F,
 ) -> Result<(), BuildError>
 where
     F: FnMut() -> bool,
 {
-    let source = "fixture.c";
+    let (source, source_content, fixture_id, expected_output) = match snapshot {
+        Some(_) => (
+            "snapshot.c",
+            SNAPSHOT_FIXTURE,
+            SNAPSHOT_FIXTURE_ID,
+            SNAPSHOT_EXPECTED_OUTPUT,
+        ),
+        None => ("fixture.c", FIXTURE, SYNTHETIC_FIXTURE_ID, EXPECTED_OUTPUT),
+    };
     let executable = staging.join(binary_name());
-    fs::write(staging.join(source), FIXTURE)?;
+    fs::write(staging.join(source), source_content)?;
+    if let Some(snapshot) = snapshot {
+        let fixture_dir = staging.join("fixture");
+        fs::create_dir(&fixture_dir)?;
+        fs::write(fixture_dir.join("manifest.bin"), snapshot.manifest())?;
+        fs::write(fixture_dir.join("payload.bin"), snapshot.payload())?;
+    }
     check_cancelled(cancelled)?;
 
     let compile = Command::new(&config.compiler)
@@ -235,21 +284,21 @@ where
         });
     }
     let output = String::from_utf8_lossy(&run.stdout).into_owned();
-    if output != EXPECTED_OUTPUT {
+    if output != expected_output {
         return Err(BuildError::UnexpectedOutput(output));
     }
-    write_manifest(staging, &executable)?;
+    write_manifest(staging, &executable, fixture_id)?;
     Ok(())
 }
 
-fn write_manifest(staging: &Path, executable: &Path) -> Result<(), BuildError> {
+fn write_manifest(staging: &Path, executable: &Path, fixture_id: &str) -> Result<(), BuildError> {
     use std::io::Write;
 
     let file = open_regular_file(executable).map_err(BuildError::Publication)?;
     let (size, digest) = hash_bounded(file).map_err(BuildError::Publication)?;
     let manifest = format!(
-        "format_version=1\nfixture_id={SYNTHETIC_FIXTURE_ID}\nexecutable_size={size}\nsha256={}\n",
-        encode_hex(&digest)
+        "format_version=1\nfixture_id={fixture_id}\nexecutable_size={size}\nsha256={}\n",
+        encode_hex(&digest),
     );
     fs::File::create_new(staging.join(MANIFEST_NAME))
         .and_then(|mut file| file.write_all(manifest.as_bytes()))
@@ -585,7 +634,7 @@ mod tests {
         let executable = temporary.0.join(binary_name());
         fs::write(&source, b"synthetic executable bytes").unwrap();
         std::os::unix::fs::symlink(&source, executable).unwrap();
-        write_manifest(&temporary.0, &source).unwrap();
+        write_manifest(&temporary.0, &source, SYNTHETIC_FIXTURE_ID).unwrap();
         assert!(matches!(
             verify_generation(&temporary.0),
             Err(VerifyError::Io(error)) if error.kind() == io::ErrorKind::InvalidData
