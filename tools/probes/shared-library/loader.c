@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 typedef int32_t (*transform_fn)(int32_t);
 typedef uint32_t (*version_fn)(void);
@@ -13,7 +14,7 @@ static int fail(const char *message) {
 }
 
 int main(int argc, char **argv) {
-    if (argc != 2) {
+    if (argc != 2 || strchr(argv[1], '/') == NULL) {
         fprintf(stderr, "usage: %s LIBRARY_PATH\n", argv[0]);
         return EXIT_FAILURE;
     }
@@ -37,13 +38,13 @@ int main(int argc, char **argv) {
     dlerror();
     version_fn version = (version_fn)dlsym(library, "oot_shared_version");
     error = dlerror();
-    if (error == NULL && version != NULL && version() != UINT32_C(1)) {
+    if (error != NULL || version == NULL || version() != UINT32_C(1)) {
         (void)dlclose(library);
-        return fail("unexpected optional library version");
+        return fail("missing or unsupported library version");
     }
 
     const int32_t input = INT32_C(42);
-    const int32_t expected = input ^ INT32_C(0x13579bdf);
+    const int32_t expected = INT32_C(0x13579bf5);
     if (transform(input) != expected) {
         (void)dlclose(library);
         return fail("operation returned an unexpected value");
@@ -62,7 +63,7 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
-    printf("PASS: transform(%" PRId32 ") = %" PRId32 "; missing symbol rejected; library unloaded\n",
+    printf("PASS: transform(%" PRId32 ") = %" PRId32 "; version 1; missing symbol rejected; dlclose passed\n",
            input, expected);
     return EXIT_SUCCESS;
 }

@@ -1,8 +1,14 @@
 name: Shared library probe
 on:
   pull_request:
+    paths:
+      - 'tools/probes/shared-library/**'
+      - '.github/workflows/shared-library.yml'
   push:
     branches: [main]
+    paths:
+      - 'tools/probes/shared-library/**'
+      - '.github/workflows/shared-library.yml'
 
 permissions:
   contents: read
@@ -10,7 +16,10 @@ permissions:
 jobs:
   linux-load:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Compile, load, check symbols, and unload
         run: bash tools/probes/shared-library/run-linux.sh

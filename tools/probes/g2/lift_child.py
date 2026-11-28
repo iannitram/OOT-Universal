@@ -26,12 +26,15 @@ class Image:
 lifter = lift.Lifter(Image())
 lifter.discover()
 body, _ = lifter.funcs[0x10000]
-assert set(body) == set(Image.words), "function discovery missed an instruction"
+if set(body) != set(Image.words):
+    raise RuntimeError("function discovery missed an instruction")
 ops = [(pc, word) for pc, (kind, word) in body.items() if kind[0] == "op"]
 texts, flags = emit.translate(ops)
-assert not any(flags), "emitter rejected an instruction"
+if len(texts) != len(ops) or len(flags) != len(ops) or any(flags):
+    raise RuntimeError("emitter rejected an instruction")
 lookup = {(word, pc) if lift.pc_relative(word) else word: (lift.op_text(text, set()), flag)
           for (pc, word), text, flag in zip(ops, texts, flags)}
 function, refs = lifter.emit_function(0x10000, lookup)
-assert not refs and not lifter.unhandled, "unexpected function references or unhandled instructions"
+if refs or lifter.unhandled:
+    raise RuntimeError("unexpected function references or unhandled instructions")
 Path(sys.argv[3]).write_text(function, encoding="ascii")

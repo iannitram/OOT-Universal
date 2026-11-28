@@ -104,8 +104,9 @@ def main():
                 "-c", str(FIXTURE), "-o", str(directory / "probe-aarch64.o"))
             run(sys.executable, str(FIXTURE.with_name("lift_child.py")), str(directory),
                 str(library), str(directory / "lifted.inc"))
-            run(args.clang, *common, str(FIXTURE.with_name("lift_fixture.c")), "-o", str(exe))
-            run(str(exe))
+            lift_exe = directory / ("lift.exe" if os.name == "nt" else "lift")
+            run(args.clang, *common, str(FIXTURE.with_name("lift_fixture.c")), "-o", str(lift_exe))
+            run(str(lift_exe))
             if args.emit_dir is not None:
                 exports[name] = emitted
             print(f"{name}: ADD, branch, memory and vector native checks passed, "
