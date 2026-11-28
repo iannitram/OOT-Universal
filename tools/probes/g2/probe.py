@@ -60,11 +60,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--clang", default="clang")
     parser.add_argument("--clangxx", default="clang++")
+    parser.add_argument("--emit-dir", type=Path, help="export generated includes to an existing empty directory")
     parser.add_argument("--child", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.child:
         print(json.dumps(translate(args.child)))
         return
+    if args.emit_dir is not None:
+        if not args.emit_dir.is_dir() or any(args.emit_dir.iterdir()):
+            parser.error("--emit-dir must be an existing empty directory")
     with tempfile.TemporaryDirectory(prefix="oot-g2-") as tmp:
         root = Path(tmp)
         for name, revision in REVISIONS.items():
@@ -97,6 +101,11 @@ def main():
             run(str(exe))
             run(args.clang, "--target=aarch64-none-elf", "-ffreestanding", *common,
                 "-c", str(FIXTURE), "-o", str(directory / "probe-aarch64.o"))
+            if args.emit_dir is not None:
+                destination = args.emit_dir / name
+                destination.mkdir()
+                for instruction, text in emitted.items():
+                    (destination / f"{instruction}.inc").write_text(text, encoding="ascii")
             print(f"{name}: ADD, branch, memory and vector native checks passed, "
                   "AArch64 object compiled", flush=True)
 
