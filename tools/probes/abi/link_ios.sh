@@ -17,8 +17,7 @@ verify_and_link() {
   local rust_target="$1"
   local sdk="$2"
   local clang_target="$3"
-  local minimum_flag="$4"
-  local expected_platform="$5"
+  local expected_platform="$4"
   local output="$work_dir/abi-${sdk}"
   local sdk_path
   sdk_path="$(xcrun --sdk "$sdk" --show-sdk-path)"
@@ -29,7 +28,6 @@ verify_and_link() {
   xcrun --sdk "$sdk" clang \
     -target "$clang_target" \
     -arch arm64 \
-    "$minimum_flag" \
     -isysroot "$sdk_path" \
     -std=c11 -Wall -Wextra -Werror \
     -Itools/probes/abi \
@@ -53,7 +51,5 @@ verify_and_link() {
   echo "PASS: $sdk $rust_target arm64; LC_BUILD_VERSION platform $expected_platform"
 }
 
-verify_and_link aarch64-apple-ios iphoneos arm64-apple-ios13.0 \
-  -miphoneos-version-min=13.0 IOS
-verify_and_link aarch64-apple-ios-sim iphonesimulator \
-  arm64-apple-ios13.0-simulator -mios-simulator-version-min=13.0 IOSSIMULATOR
+verify_and_link aarch64-apple-ios iphoneos arm64-apple-ios13.0 IOS
+verify_and_link aarch64-apple-ios-sim iphonesimulator arm64-apple-ios14.0-simulator IOSSIMULATOR
