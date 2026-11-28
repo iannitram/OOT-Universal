@@ -13,7 +13,7 @@ lift = importlib.import_module("a64_lift")
 emit = importlib.import_module("a64emit")
 
 class Image:
-    entries = {0x10000, 0x20000, 0x20020}
+    entries = {0x10000, 0x20000, 0x20020, 0x20040}
     hooks = {}
     # cbz x0, zero; add x0, x0, #7; ret; zero: add x0, x0, #3; ret
     words = {
@@ -29,6 +29,12 @@ class Image:
         0x20020: 0x91001400,  # add x0, x0, #5
         0x20024: 0xaa1e03e3,  # mov x3, x30
         0x20028: 0xd65f03c0,  # ret
+        # Keep the incoming LR in x9, which this fixture's callee leaves untouched.
+        0x20040: 0xaa1e03e9,  # mov x9, x30
+        0x20044: 0xd63f0200,  # blr x16
+        0x20048: 0x91001c00,  # add x0, x0, #7 (real post-call guest instruction)
+        0x2004c: 0xaa0903fe,  # mov x30, x9
+        0x20050: 0xd65f03c0,  # ret
     }
     def in_code(self, pc):
         return pc in self.words
@@ -41,6 +47,7 @@ expected = {
     0x10000: {0x10000, 0x10004, 0x10008, 0x1000c, 0x10010},
     0x20000: set(range(0x20000, 0x20018, 4)),
     0x20020: {0x20020, 0x20024, 0x20028},
+    0x20040: set(range(0x20040, 0x20054, 4)),
 }
 for entry, addresses in expected.items():
     body, _ = lifter.funcs[entry]
@@ -58,7 +65,10 @@ if refs or lifter.unhandled:
     raise RuntimeError("unexpected function references or unhandled instructions")
 caller, caller_refs = lifter.emit_function(0x20000, lookup)
 callee, callee_refs = lifter.emit_function(0x20020, lookup)
+indirect, indirect_refs = lifter.emit_function(0x20040, lookup)
 expected_callee = "f_00020020"
 if caller_refs != {expected_callee} or callee_refs or lifter.unhandled:
     raise RuntimeError("direct BL did not emit exactly the discovered callee reference")
-Path(sys.argv[3]).write_text(function + callee + caller, encoding="ascii")
+if indirect_refs:
+    raise RuntimeError("indirect BLR unexpectedly emitted a static function reference")
+Path(sys.argv[3]).write_text(function + callee + caller + indirect, encoding="ascii")
