@@ -1,0 +1,37 @@
+name: Native Metal compute probe
+
+on:
+  pull_request:
+    paths:
+      - 'tools/probes/metal/**'
+      - '.github/workflows/metal-compute.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tools/probes/metal/**'
+      - '.github/workflows/metal-compute.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  metal-arm64:
+    name: macOS ARM64 Metal compile and compute
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Confirm native ARM64 and Apple toolchain
+        run: |
+          architecture="$(uname -m)"
+          echo "uname -m: ${architecture}"
+          test "${architecture}" = arm64
+          clang --version
+
+      - name: Compile and run authored Metal compute probe
+        run: bash tools/probes/metal/run.sh
