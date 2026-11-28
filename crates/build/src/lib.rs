@@ -1,7 +1,7 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -117,6 +117,28 @@ where
         });
     }
 
+    let run = run_probe(&executable, staging, cancelled)?;
+    if !run.status.success() {
+        return Err(BuildError::ProbeFailed {
+            status: run.status.code(),
+            stderr: String::from_utf8_lossy(&run.stderr).into_owned(),
+        });
+    }
+    let output = String::from_utf8_lossy(&run.stdout).into_owned();
+    if output != EXPECTED_OUTPUT {
+        return Err(BuildError::UnexpectedOutput(output));
+    }
+    Ok(())
+}
+
+fn run_probe<F>(
+    executable: &Path,
+    staging: &Path,
+    cancelled: &mut F,
+) -> Result<std::process::Output, BuildError>
+where
+    F: FnMut() -> bool,
+{
     let capture_id = next_id();
     let stdout_path = staging.join(format!("stdout-{capture_id}"));
     let stderr_path = staging.join(format!("stderr-{capture_id}"));
@@ -128,51 +150,57 @@ where
         .write(true)
         .create_new(true)
         .open(&stderr_path)?;
-    let mut child = Command::new(&executable)
-        .current_dir(staging)
-        .stdout(Stdio::from(stdout))
-        .stderr(Stdio::from(stderr))
-        .spawn()?;
+    let mut child = RunningProbe(
+        Command::new(executable)
+            .current_dir(staging)
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(stdout))
+            .stderr(Stdio::from(stderr))
+            .spawn()?,
+    );
     let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) => {}
-            Err(error) => {
-                let _ = child.kill();
-                child.wait()?;
-                return Err(error.into());
-            }
+        if let Some(status) = child.0.try_wait()? {
+            break status;
         }
         if cancelled() {
-            // An exit racing with kill is harmless if wait confirms it was reaped.
-            if let Err(error) = child.kill() {
-                if child.try_wait()?.is_none() {
-                    child.wait()?;
-                    return Err(error.into());
-                }
-            } else {
-                child.wait()?;
-            }
+            child.terminate()?;
             return Err(BuildError::Cancelled);
         }
         std::thread::sleep(Duration::from_millis(10));
     };
     check_cancelled(cancelled)?;
-    let stdout = fs::read(&stdout_path)?;
-    let stderr = fs::read(&stderr_path)?;
+    let output = std::process::Output {
+        status,
+        stdout: fs::read(&stdout_path)?,
+        stderr: fs::read(&stderr_path)?,
+    };
     fs::remove_file(stdout_path)?;
     fs::remove_file(stderr_path)?;
-    if !status.success() {
-        return Err(BuildError::ProbeFailed {
-            status: status.code(),
-            stderr: String::from_utf8_lossy(&stderr).into_owned(),
-        });
+    Ok(output)
+}
+
+struct RunningProbe(Child);
+
+impl RunningProbe {
+    fn terminate(&mut self) -> io::Result<()> {
+        if let Err(error) = self.0.kill() {
+            // On Windows an exit racing with kill can return an error.
+            return match self.0.try_wait()? {
+                Some(_) => Ok(()),
+                None => Err(error),
+            };
+        }
+        self.0.wait()?;
+        Ok(())
     }
-    let output = String::from_utf8_lossy(&stdout).into_owned();
-    if output != EXPECTED_OUTPUT {
-        return Err(BuildError::UnexpectedOutput(output));
+}
+
+impl Drop for RunningProbe {
+    fn drop(&mut self) {
+        if !matches!(self.0.try_wait(), Ok(Some(_))) {
+            let _ = self.terminate();
+        }
     }
-    Ok(())
 }
 
 fn check_cancelled<F: FnMut() -> bool>(cancelled: &mut F) -> Result<(), BuildError> {

@@ -256,23 +256,45 @@ int main(int argc, char **argv) {
         other => panic!("expected unexpected output, got {other:?}"),
     }
     assert_prior_generation(&output_root, &previous);
-    // The executable marks its own start, then runs until the build kills it.
+    // The marker is written by the child itself, which then waits long enough
+    // to prove that cancellation is observed before normal exit.
     fs::write(
         &fixture_source,
-        "#define _CRT_SECURE_NO_WARNINGS\n#include <stdio.h>\nint main(void) { FILE *f = fopen(\"running-marker\", \"wb\"); if (!f) return 1; if (fclose(f)) return 2; for (;;) {} }\n",
+        r#"
+#define _CRT_SECURE_NO_WARNINGS
+#include <stdio.h>
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+int main(void) {
+    FILE *marker = fopen("running-marker", "wb");
+    if (!marker || fclose(marker)) return 1;
+#ifdef _WIN32
+    Sleep(30000);
+#else
+    sleep(30);
+#endif
+    return 2;
+}
+"#,
     )
-    .unwrap();
+    .expect("write running fixture");
     build(&fixture_source, &fixture);
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let started = std::time::Instant::now();
+    let mut observed_start = false;
     let cancelled = build_synthetic(&bad_config, || {
-        assert!(std::time::Instant::now() < deadline, "probe did not start");
-        fs::read_dir(&output_root).unwrap().any(|entry| {
+        observed_start = fs::read_dir(&output_root).unwrap().any(|entry| {
             let path = entry.unwrap().path();
             path.file_name()
                 .is_some_and(|name| name.to_string_lossy().starts_with("staging-"))
                 && path.join("running-marker").exists()
-        })
+        });
+        observed_start || started.elapsed() >= std::time::Duration::from_secs(20)
     });
+    assert!(observed_start, "probe did not start");
+    assert!(started.elapsed() < std::time::Duration::from_secs(30));
     assert!(matches!(cancelled, Err(BuildError::Cancelled)));
     assert_prior_generation(&output_root, &previous);
 }
