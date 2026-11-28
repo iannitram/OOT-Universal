@@ -42,3 +42,40 @@ jobs:
           clang++ --version
           python3 --version
           python3 tools/probes/g2/probe.py
+
+  g2-windows-x64:
+    name: G2 synthetic probe (Windows x86-64)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install hosted LLVM and Clang
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "20.1.8"
+
+      - name: Confirm x86-64 runner
+        shell: pwsh
+        run: |
+          $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+          Write-Output "OS architecture: $architecture"
+          if ($architecture -ne "X64") { throw "Expected x86-64 Windows runner, found $architecture" }
+
+      - name: Fetch pinned public emitter imports
+        shell: pwsh
+        run: |
+          git fetch --no-tags --depth=1 origin `
+            16cba0845075868d211c63674156fa37401d852e `
+            fa2cc03aa5c2369dea53856d4b11bdb9d0299b3b
+
+      - name: Verify hosted Clang and run native probe
+        shell: pwsh
+        run: |
+          clang --version
+          clang++ --version
+          python --version
+          python tools/probes/g2/probe.py --clang clang --clangxx clang++
