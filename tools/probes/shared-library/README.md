@@ -13,8 +13,4 @@ bash tools/probes/shared-library/run-linux.sh
 ```
 
 The script builds in a temporary directory and removes its outputs on exit.
-Hosted Linux CI runs this script and verifies rejection of a missing library. To build the same sources for Android,
-use the NDK's `aarch64-linux-android<api>-clang` driver with
-`-std=c11 -Wall -Wextra -Werror -fPIC -shared` for `library.c`, and compile
-`loader.c` as an executable. Both Android and Linux provide `dlopen` through
-their platform C library; Linux additionally links the loader with `-ldl`.
+Hosted Linux CI runs this script and verifies rejection of a missing library. From the repository root on Linux x86-64 with the NDK installed, run `bash tools/probes/android/build-android-shared-library.sh`. The Android workflow uses API 24 and checks ELF metadata, symbols and explicit loader linkage. Android device execution remains open.
