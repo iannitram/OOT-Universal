@@ -8,8 +8,8 @@ devices, Vulkan API errors, or a mismatched readback. The workflow explicitly
 selects Mesa Lavapipe's ICD and the probe independently checks CPU-device
 evidence before dispatch.
 
-From the repository root on Ubuntu 24.04, install `libvulkan-dev`,
-`mesa-vulkan-drivers`, and `glslc`, then run:
+From the repository root on Ubuntu 24.04, install `build-essential`,
+`libvulkan-dev`, `mesa-vulkan-drivers`, and `glslc`, then run:
 
 ```sh
 bash tools/probes/vulkan/run.sh
