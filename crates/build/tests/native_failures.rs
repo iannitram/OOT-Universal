@@ -36,6 +36,15 @@ const PROBE_NAME: &str = "probe.exe";
 #[cfg(not(windows))]
 const PROBE_NAME: &str = "probe";
 
+fn native_compiler() -> PathBuf {
+    let compiler = std::env::var_os("OOT_BUILD_TEST_COMPILER")
+        .expect("set OOT_BUILD_TEST_COMPILER to an absolute native compiler path");
+    let compiler = PathBuf::from(compiler);
+    assert!(compiler.is_absolute(), "compiler path must be absolute");
+    assert!(compiler.is_file(), "compiler path must exist");
+    compiler
+}
+
 fn assert_probe_output(path: &Path) {
     let output = Command::new(path).output().expect("run probe");
     assert!(output.status.success());
@@ -65,11 +74,7 @@ fn assert_prior_generation(root: &Path, previous: &Path) {
 #[test]
 #[ignore = "requires OOT_BUILD_TEST_COMPILER to name an absolute native compiler executable"]
 fn native_success_compiler_failure_and_post_compile_cancellation() {
-    let compiler = std::env::var_os("OOT_BUILD_TEST_COMPILER")
-        .expect("set OOT_BUILD_TEST_COMPILER to an absolute native compiler path");
-    let compiler = PathBuf::from(compiler);
-    assert!(compiler.is_absolute(), "compiler path must be absolute");
-    assert!(compiler.is_file(), "compiler path must exist");
+    let compiler = native_compiler();
 
     let temp = TempDir::new();
     let output_root = temp.0.join("output");
@@ -162,11 +167,7 @@ fn native_success_compiler_failure_and_post_compile_cancellation() {
 #[test]
 #[ignore = "requires OOT_BUILD_TEST_COMPILER to name an absolute native compiler executable"]
 fn native_probe_failures_preserve_previous_generation() {
-    let compiler = PathBuf::from(
-        std::env::var_os("OOT_BUILD_TEST_COMPILER")
-            .expect("set OOT_BUILD_TEST_COMPILER to an absolute native compiler path"),
-    );
-    assert!(compiler.is_absolute() && compiler.is_file());
+    let compiler = native_compiler();
     let temp = TempDir::new();
     let output_root = temp.0.join("output");
     let config = BuildConfig {

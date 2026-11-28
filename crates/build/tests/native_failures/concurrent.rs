@@ -1,16 +1,11 @@
-use super::{assert_probe_output, BuildConfig, TempDir, PROBE_NAME};
+use super::{assert_probe_output, native_compiler, BuildConfig, TempDir, PROBE_NAME};
 use std::fs;
-use std::path::PathBuf;
 use std::sync::{Arc, Barrier};
 
 #[test]
 #[ignore = "requires OOT_BUILD_TEST_COMPILER to name an absolute native compiler executable"]
 fn concurrent_native_builds_publish_distinct_complete_generations() {
-    let compiler = std::env::var_os("OOT_BUILD_TEST_COMPILER")
-        .expect("set OOT_BUILD_TEST_COMPILER to an absolute native compiler path");
-    let compiler = PathBuf::from(compiler);
-    assert!(compiler.is_absolute(), "compiler path must be absolute");
-    assert!(compiler.is_file(), "compiler path must exist");
+    let compiler = native_compiler();
 
     let temp = TempDir::new();
     let output_root = temp.0.join("output");
