@@ -84,7 +84,14 @@ impl std::fmt::Display for VerifyError {
     }
 }
 
-impl std::error::Error for VerifyError {}
+impl std::error::Error for VerifyError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 impl From<io::Error> for VerifyError {
     fn from(error: io::Error) -> Self {
@@ -95,15 +102,17 @@ impl From<io::Error> for VerifyError {
 /// Verify a published generation using its strict, bounded metadata record.
 ///
 /// The verifier accepts only format version 1 and the bundled synthetic fixture
-/// identifier. Metadata is capped at 256 bytes and executable hashing at 64 MiB.
+/// identifier. It expects a trusted directory without concurrent changes and
+/// regular manifest and executable files. Metadata is capped at 256 bytes and
+/// executable hashing at 64 MiB.
 pub fn verify_generation(generation: &Path) -> Result<ArtifactRecord, VerifyError> {
-    let manifest_path = generation.join(MANIFEST_NAME);
-    let metadata = fs::metadata(&manifest_path)?;
+    let manifest = open_regular_file(&generation.join(MANIFEST_NAME))?;
+    let metadata = manifest.metadata()?;
     if metadata.len() > MAX_MANIFEST_BYTES as u64 {
         return Err(VerifyError::MetadataTooLarge);
     }
     let mut bytes = Vec::with_capacity(metadata.len() as usize);
-    fs::File::open(manifest_path)?
+    manifest
         .take((MAX_MANIFEST_BYTES + 1) as u64)
         .read_to_end(&mut bytes)?;
     if bytes.len() > MAX_MANIFEST_BYTES {
@@ -114,8 +123,7 @@ pub fn verify_generation(generation: &Path) -> Result<ArtifactRecord, VerifyErro
         return Err(VerifyError::FixtureMismatch);
     }
 
-    let executable_path = generation.join(binary_name());
-    let file = fs::File::open(executable_path)?;
+    let file = open_regular_file(&generation.join(binary_name()))?;
     let actual_size = file.metadata()?.len();
     if actual_size > MAX_EXECUTABLE_BYTES {
         return Err(VerifyError::MalformedMetadata(
@@ -218,6 +226,7 @@ where
         });
     }
 
+    require_regular_file(&fs::symlink_metadata(&executable)?)?;
     let run = run_probe(&executable, staging, cancelled)?;
     if !run.status.success() {
         return Err(BuildError::ProbeFailed {
@@ -234,16 +243,38 @@ where
 }
 
 fn write_manifest(staging: &Path, executable: &Path) -> Result<(), BuildError> {
-    let file = fs::File::open(executable)?;
+    use std::io::Write;
+
+    let file = open_regular_file(executable).map_err(BuildError::Publication)?;
     let (size, digest) = hash_bounded(file).map_err(BuildError::Publication)?;
     let manifest = format!(
         "format_version=1\nfixture_id={SYNTHETIC_FIXTURE_ID}\nexecutable_size={size}\nsha256={}\n",
         encode_hex(&digest)
     );
-    fs::write(staging.join(MANIFEST_NAME), manifest).map_err(BuildError::Publication)
+    fs::File::create_new(staging.join(MANIFEST_NAME))
+        .and_then(|mut file| file.write_all(manifest.as_bytes()))
+        .map_err(BuildError::Publication)
 }
 
-fn hash_bounded(mut file: fs::File) -> io::Result<(u64, [u8; 32])> {
+fn open_regular_file(path: &Path) -> io::Result<fs::File> {
+    require_regular_file(&fs::symlink_metadata(path)?)?;
+    let file = fs::File::open(path)?;
+    require_regular_file(&file.metadata()?)?;
+    Ok(file)
+}
+
+fn require_regular_file(metadata: &fs::Metadata) -> io::Result<()> {
+    if metadata.is_file() {
+        return Ok(());
+    }
+    Err(io::Error::new(
+        io::ErrorKind::InvalidData,
+        "artifact entry is not a regular file",
+    ))
+}
+
+fn hash_bounded(file: fs::File) -> io::Result<(u64, [u8; 32])> {
+    let mut file = file.take(MAX_EXECUTABLE_BYTES + 1);
     let mut hasher = Sha256::new();
     let mut size = 0_u64;
     let mut buffer = [0_u8; 8192];
@@ -252,9 +283,7 @@ fn hash_bounded(mut file: fs::File) -> io::Result<(u64, [u8; 32])> {
         if read == 0 {
             break;
         }
-        size = size.checked_add(read as u64).ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidData, "executable size overflow")
-        })?;
+        size += read as u64;
         if size > MAX_EXECUTABLE_BYTES {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -535,6 +564,31 @@ mod tests {
         assert!(matches!(
             parse_manifest(&vec![b'x'; MAX_MANIFEST_BYTES + 1]),
             Err(VerifyError::MetadataTooLarge)
+        ));
+    }
+
+    #[test]
+    fn verifier_rejects_non_regular_manifest() {
+        let temporary = TempDir::new();
+        fs::create_dir(temporary.0.join(MANIFEST_NAME)).unwrap();
+        assert!(matches!(
+            verify_generation(&temporary.0),
+            Err(VerifyError::Io(error)) if error.kind() == io::ErrorKind::InvalidData
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn verifier_rejects_symlinked_executable_even_when_bytes_match() {
+        let temporary = TempDir::new();
+        let source = temporary.0.join("source");
+        let executable = temporary.0.join(binary_name());
+        fs::write(&source, b"synthetic executable bytes").unwrap();
+        std::os::unix::fs::symlink(&source, executable).unwrap();
+        write_manifest(&temporary.0, &source).unwrap();
+        assert!(matches!(
+            verify_generation(&temporary.0),
+            Err(VerifyError::Io(error)) if error.kind() == io::ErrorKind::InvalidData
         ));
     }
 

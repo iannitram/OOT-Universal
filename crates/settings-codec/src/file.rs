@@ -55,9 +55,13 @@ impl From<CodecError> for FileError {
     }
 }
 
-/// Reads at most `MAX_SETTINGS_BYTES + 1` bytes, then validates the settings JSON.
+/// Reads at most `MAX_SETTINGS_BYTES + 1` bytes from a regular file, then
+/// validates the settings JSON.
 pub fn read(path: impl AsRef<Path>) -> Result<Settings, FileError> {
+    let path = path.as_ref();
+    require_regular_file(&fs::metadata(path)?)?;
     let file = File::open(path)?;
+    require_regular_file(&file.metadata()?)?;
     let mut bytes = Vec::with_capacity(MAX_SETTINGS_BYTES + 1);
     file.take((MAX_SETTINGS_BYTES + 1) as u64)
         .read_to_end(&mut bytes)?;
@@ -77,13 +81,11 @@ pub fn write_atomic(destination: impl AsRef<Path>, settings: &Settings) -> Resul
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
-    if destination.file_name().is_none() {
-        return Err(
-            io::Error::new(io::ErrorKind::InvalidInput, "destination has no file name").into(),
-        );
-    }
+    let destination_name = destination.file_name().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "destination has no file name")
+    })?;
 
-    let (temporary_path, mut temporary) = create_temporary(parent)?;
+    let (temporary_path, mut temporary) = create_temporary(parent, destination_name)?;
     let write_result = temporary
         .write_all(&encoded)
         .and_then(|()| temporary.sync_all());
@@ -100,10 +102,32 @@ pub fn write_atomic(destination: impl AsRef<Path>, settings: &Settings) -> Resul
     Ok(())
 }
 
-fn create_temporary(parent: &Path) -> io::Result<(PathBuf, File)> {
+fn require_regular_file(metadata: &fs::Metadata) -> io::Result<()> {
+    if metadata.is_file() {
+        return Ok(());
+    }
+    Err(io::Error::new(
+        io::ErrorKind::InvalidInput,
+        "settings path does not refer to a regular file",
+    ))
+}
+
+fn create_temporary(
+    parent: &Path,
+    destination_name: &std::ffi::OsStr,
+) -> io::Result<(PathBuf, File)> {
     for _ in 0..CREATE_ATTEMPTS {
         let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let temporary_name = format!(".oot-settings.{}.{}.tmp", std::process::id(), sequence);
+        // A caller can choose a name resembling one of our staging files.
+        // Use an ASCII case-insensitive comparison for case-insensitive volumes.
+        if destination_name
+            .to_string_lossy()
+            .trim_end_matches(['.', ' '])
+            .eq_ignore_ascii_case(&temporary_name)
+        {
+            continue;
+        }
         let path = parent.join(temporary_name);
         let mut options = OpenOptions::new();
         options.write(true).create_new(true);
@@ -231,6 +255,15 @@ mod tests {
         assert!(matches!(
             read(&destination),
             Err(FileError::Codec(CodecError::TooLarge { .. }))
+        ));
+    }
+
+    #[test]
+    fn rejects_non_regular_settings_path() {
+        let directory = TestDir::new();
+        assert!(matches!(
+            read(&directory.0),
+            Err(FileError::Io(error)) if error.kind() == io::ErrorKind::InvalidInput
         ));
     }
 
