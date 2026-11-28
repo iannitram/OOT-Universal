@@ -6,7 +6,7 @@ The historical audit on 2026-11-26 used baseline `fdd935716260547c91875617ccbb04
 
 | Existing location | API/entry point | Behavior and limits |
 |---|---|---|
-| [`Cargo.toml`](../Cargo.toml), [`Cargo.lock`](../Cargo.lock) | Root `oot-frame-check` workspace with contracts, copy identity, build probe and platform support crates | Dependency-free Cargo workspace. The root package and CLI remain intact; this is not an application build. |
+| [`Cargo.toml`](../Cargo.toml), [`Cargo.lock`](../Cargo.lock) | Root `oot-frame-check` workspace with contracts, copy identity, build, platform support and settings codec crates | The root checker and shared contracts stay dependency-free. The settings codec keeps its JSON dependencies in a separate crate. |
 | [`crates/contracts/src/copy.rs`](../crates/contracts/src/copy.rs) | `CopyIdentity::new` and normalized accessors | Validates 16-hex program ID, `v` plus decimal version and 8-hex build ID; normalizes hexadecimal case and decimal leading zeroes. This is syntax validation only, not supported-version policy. |
 | [`crates/contracts/src/settings.rs`](../crates/contracts/src/settings.rs) | `Settings`, `Resolution`, `FrameCap`, `Upscaler` | Validates the in-memory schema version and represents native or nonzero explicit resolution. Defaults to native resolution, 60 FPS, upscaling off and extras off. Serialization, controller mapping and device capability checks remain open. |
 | [`crates/settings-codec/`](../crates/settings-codec/README.md) | Bounded schema v1 JSON codec (U02) | Encodes every setting and validates schema, size and values on decode. File persistence and migration remain open. |
