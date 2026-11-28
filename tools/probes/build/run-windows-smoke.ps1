@@ -17,7 +17,7 @@ try {
 
     $outputRoot = Join-Path ([System.IO.Path]::GetTempPath()) "oot synthetic build $([guid]::NewGuid().ToString('N'))"
     Write-Host "Output root: $outputRoot"
-    & cargo +1.100.0 run --manifest-path crates/build/Cargo.toml --example smoke -- $clang $outputRoot
+    & cargo +1.100.0 run --locked --manifest-path crates/build/Cargo.toml --example smoke -- $clang $outputRoot
     if ($LASTEXITCODE -ne 0) {
         throw "Cargo smoke example failed with exit code $LASTEXITCODE."
     }
@@ -48,6 +48,17 @@ try {
     }
     Write-Host "Published probe.exe passed: $($probeOutput -join '')"
     Write-Host "Generation count: $($generations.Count); staging entry count: $($staging.Count)"
+
+    $originalCompiler = [Environment]::GetEnvironmentVariable('OOT_BUILD_TEST_COMPILER')
+    try {
+        $env:OOT_BUILD_TEST_COMPILER = $clang
+        & cargo +1.100.0 test --locked -p oot-build-probe --test native_failures -- --ignored
+        if ($LASTEXITCODE -ne 0) {
+            throw "Native regression check failed with exit code $LASTEXITCODE."
+        }
+    } finally {
+        [Environment]::SetEnvironmentVariable('OOT_BUILD_TEST_COMPILER', $originalCompiler)
+    }
 } finally {
     Pop-Location
 }
