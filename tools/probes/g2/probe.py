@@ -69,6 +69,7 @@ def main():
     if args.emit_dir is not None:
         if not args.emit_dir.is_dir() or any(args.emit_dir.iterdir()):
             parser.error("--emit-dir must be an existing empty directory")
+    exports = {}
     with tempfile.TemporaryDirectory(prefix="oot-g2-") as tmp:
         root = Path(tmp)
         for name, revision in REVISIONS.items():
@@ -102,12 +103,15 @@ def main():
             run(args.clang, "--target=aarch64-none-elf", "-ffreestanding", *common,
                 "-c", str(FIXTURE), "-o", str(directory / "probe-aarch64.o"))
             if args.emit_dir is not None:
-                destination = args.emit_dir / name
-                destination.mkdir()
-                for instruction, text in emitted.items():
-                    (destination / f"{instruction}.inc").write_text(text, encoding="ascii")
+                exports[name] = emitted
             print(f"{name}: ADD, branch, memory and vector native checks passed, "
                   "AArch64 object compiled", flush=True)
+
+    for name, emitted in exports.items():
+        destination = args.emit_dir / name
+        destination.mkdir()
+        for instruction, text in emitted.items():
+            (destination / f"{instruction}.inc").write_text(text, encoding="ascii")
 
 
 if __name__ == "__main__":

@@ -4,6 +4,12 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$repo_root"
 
+mode="${1:-}"
+if [[ $# -gt 1 || ( $# -eq 1 && "$mode" != "--g2" ) ]]; then
+  echo "Usage: bash tools/probes/abi/link_ios.sh [--g2]" >&2
+  exit 2
+fi
+
 rustc_version="$(rustc --version | awk '{print $2}')"
 if [[ "$rustc_version" != "1.100.0" ]]; then
   echo "expected Rust 1.100.0, found ${rustc_version}" >&2
@@ -13,10 +19,26 @@ fi
 work_dir="$(mktemp -d "${TMPDIR:-/tmp}/oot-ios-abi.XXXXXX")"
 trap 'rm -rf "$work_dir"' EXIT
 
-# The G2 probe imports its pinned emitter source from Git objects and writes
-# only generated includes into this isolated temporary directory.
-mkdir "$work_dir/g2-generated"
-python3 tools/probes/g2/probe.py --emit-dir "$work_dir/g2-generated"
+if [[ "$mode" == "--g2" ]]; then
+  mkdir "$work_dir/g2-generated"
+  python3 tools/probes/g2/probe.py --emit-dir "$work_dir/g2-generated"
+fi
+
+verify_macho() {
+  local executable="$1"
+  local expected_platform="$2"
+  local architectures build_metadata
+  architectures="$(xcrun lipo -archs "$executable")"
+  if [[ "$architectures" != "arm64" ]]; then
+    echo "expected only arm64 in $executable, found: $architectures" >&2
+    exit 1
+  fi
+  build_metadata="$(xcrun vtool -show-build "$executable")"
+  if ! grep -Eq "platform[[:space:]]+$expected_platform([[:space:]]|$)" <<< "$build_metadata"; then
+    echo "expected Mach-O build platform $expected_platform in $executable" >&2
+    exit 1
+  fi
+}
 
 verify_and_link() {
   local rust_target="$1"
@@ -40,23 +62,15 @@ verify_and_link() {
     "$work_dir/target/$rust_target/release/liboot_abi_probe.a" \
     -o "$output"
 
-  local architectures
-  architectures="$(xcrun lipo -archs "$output")"
-  if [[ "$architectures" != "arm64" ]]; then
-    echo "expected only arm64 in $output, found: $architectures" >&2
-    exit 1
-  fi
-
-  local build_metadata
-  build_metadata="$(xcrun vtool -show-build "$output")"
-  if ! grep -Eq "platform[[:space:]]+$expected_platform([[:space:]]|$)" <<< "$build_metadata"; then
-    echo "expected Mach-O build platform $expected_platform in $output" >&2
-    exit 1
-  fi
+  verify_macho "$output" "$expected_platform"
   echo "PASS: $sdk $rust_target arm64; LC_BUILD_VERSION platform $expected_platform"
 
+  if [[ "$mode" != "--g2" ]]; then
+    return 0
+  fi
+  local candidate g2_output
   for candidate in relink longshot; do
-    local g2_output="$work_dir/g2-${candidate}-${sdk}"
+    g2_output="$work_dir/g2-${candidate}-${sdk}"
     xcrun --sdk "$sdk" clang \
       -target "$clang_target" \
       -arch arm64 \
@@ -66,17 +80,7 @@ verify_and_link() {
       tools/probes/g2/fixture.c \
       -o "$g2_output"
 
-    architectures="$(xcrun lipo -archs "$g2_output")"
-    if [[ "$architectures" != "arm64" ]]; then
-      echo "expected only arm64 in $g2_output, found: $architectures" >&2
-      exit 1
-    fi
-
-    build_metadata="$(xcrun vtool -show-build "$g2_output")"
-    if ! grep -Eq "platform[[:space:]]+$expected_platform([[:space:]]|$)" <<< "$build_metadata"; then
-      echo "expected Mach-O build platform $expected_platform in $g2_output" >&2
-      exit 1
-    fi
+    verify_macho "$g2_output" "$expected_platform"
     echo "PASS: G2 $candidate $sdk arm64; LC_BUILD_VERSION platform $expected_platform"
   done
 }
